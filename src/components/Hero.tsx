@@ -21,7 +21,7 @@ export function Hero() {
         <div className="animate-fade-up flex items-center gap-3">
           <span className="h-px w-8 bg-gold" />
           <p className="text-[11px] uppercase tracking-[0.32em] text-gold-deep">
-            Naglar &amp; fransar
+            Naglar &amp; fransar · Örebro
           </p>
         </div>
 
@@ -30,7 +30,8 @@ export function Hero() {
         </h1>
 
         <p className="animate-fade-up delay-2 mt-5 max-w-md text-[15px] leading-relaxed text-ink/70 md:text-base">
-          Boka bland publicerade tider. Bekräftelse till dig — och till Sevda.
+          Personlig hemmasalong i Örebro. Boka gelénaglar, akryl och
+          fransförlängning bland publicerade tider.
         </p>
 
         <div className="animate-fade-up delay-3 mt-8 flex flex-wrap gap-3">

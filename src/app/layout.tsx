@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Cormorant_Garamond, Manrope } from "next/font/google";
+import { siteConfig } from "@/lib/site";
 import "./globals.css";
 
 const cormorant = Cormorant_Garamond({
@@ -14,9 +15,40 @@ const manrope = Manrope({
 });
 
 export const metadata: Metadata = {
-  title: "Beauty by Sevda — Naglar & Fransar",
-  description:
-    "Boka gelénaglar, akryl och fransförlängning hos Beauty by Sevda. Välj bland publicerade tider — enkelt och proffsigt.",
+  metadataBase: new URL(siteConfig.siteUrl),
+  title: {
+    default: `Fransförlängning & Naglar i ${siteConfig.city} | ${siteConfig.brand}`,
+    template: `%s | ${siteConfig.brand}`,
+  },
+  description: `Personlig hemmasalong i ${siteConfig.city}. Gelénaglar, akryl, singelfransar och volymfransar. Boka din tid smidigt online hos ${siteConfig.brand}.`,
+  keywords: [
+    "fransförlängning Örebro",
+    "naglar Örebro",
+    "gelénaglar Örebro",
+    "volymfransar Örebro",
+    "Beauty by Sevda",
+    "hemmasalong Örebro",
+  ],
+  alternates: {
+    canonical: "/",
+  },
+  openGraph: {
+    type: "website",
+    locale: "sv_SE",
+    url: siteConfig.siteUrl,
+    siteName: siteConfig.brand,
+    title: `Fransförlängning & Naglar i ${siteConfig.city} | ${siteConfig.brand}`,
+    description: `Personlig hemmasalong i ${siteConfig.city}. Boka gelénaglar, akryl och fransförlängning online.`,
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: `Fransförlängning & Naglar i ${siteConfig.city} | ${siteConfig.brand}`,
+    description: `Personlig hemmasalong i ${siteConfig.city}. Boka din tid online.`,
+  },
+  robots: {
+    index: true,
+    follow: true,
+  },
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

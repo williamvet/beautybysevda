@@ -355,6 +355,8 @@ export async function sendCustomerBookingEmail(b: CalendarBooking) {
   const when = formatSvDate(b.dateKey);
   const cancel = manageUrl(b.manageToken);
 
+  // Ingen rå URL i text — den blir blå länk i många mejlprogram.
+  // Avbokning bara via knappen i HTML-mejlet.
   const text = `Tack for att du bokar hos mig, ${first}!
 
 Din tid: ${b.dateKey} kl ${b.time}
@@ -362,8 +364,7 @@ ${b.serviceName}
 ${b.price} kr · ca ${b.durationMinutes} min
 
 Betalning: kontant pa plats.
-Avboka senast 24 timmar innan:
-${cancel}
+Avboka senast 24 timmar innan: anvand knappen "Avboka tid" i mejlet.
 
 Vi ses snart!
 — Sevda`;

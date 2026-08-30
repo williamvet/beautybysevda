@@ -1,5 +1,3 @@
-import { promises as fs } from "fs";
-import path from "path";
 import {
   DAY_SLOTS,
   blockEndMinutes,
@@ -9,17 +7,17 @@ import {
   timeToMinutes,
 } from "@/data/availability";
 import { getService, type ServiceCategory } from "@/data/services";
+import { getSupabase, isSupabaseConfigured } from "@/lib/supabase";
 
 export type BookingStatus = "active" | "cancelled";
 
 export type Booking = {
   id: string;
-  /** Hemlig länk för att avboka via telefon/SMS — ingen admin */
+  /** Hemlig länk för att avboka — ingen admin */
   manageToken: string;
   createdAt: string;
   name: string;
   phone: string;
-  /** Kundens e-post — bekräftelse + kalender */
   email: string;
   note?: string;
   serviceId: string;
@@ -27,7 +25,6 @@ export type Booking = {
   category: ServiceCategory;
   dateKey: string;
   time: string;
-  /** Sparad längd så overlap funkar även om menyn ändras senare */
   durationMinutes: number;
   price: number;
   status: BookingStatus;
@@ -37,41 +34,59 @@ export type Booking = {
 };
 
 type ClosedStore = string[];
-/** Extra starttider Sevda lagt till: "2026-09-05|11:00" */
 type ExtraStore = string[];
 
-const dataDir = path.join(process.cwd(), "data");
-const bookingsPath = path.join(dataDir, "bookings.json");
-const closedPath = path.join(dataDir, "closed-slots.json");
-const extraPath = path.join(dataDir, "extra-slots.json");
+type BookingRow = {
+  id: string;
+  manage_token: string;
+  created_at: string;
+  name: string;
+  phone: string;
+  email: string | null;
+  note: string | null;
+  service_id: string;
+  service_name: string;
+  category: string;
+  date_key: string;
+  time: string;
+  duration_minutes: number;
+  price: number;
+  status: string;
+  notified_sevda: boolean | null;
+  notified_customer: boolean | null;
+  cancelled_at: string | null;
+};
 
-async function ensureFiles() {
-  await fs.mkdir(dataDir, { recursive: true });
-  for (const [file, empty] of [
-    [bookingsPath, "[]"],
-    [closedPath, "[]"],
-    [extraPath, "[]"],
-  ] as const) {
-    try {
-      await fs.access(file);
-    } catch {
-      await fs.writeFile(file, empty, "utf8");
-    }
+function requireDb() {
+  if (!isSupabaseConfigured()) {
+    throw new Error(
+      "Bokningar kräver Supabase. Sätt SUPABASE_URL och SUPABASE_SERVICE_ROLE_KEY.",
+    );
   }
+  return getSupabase();
 }
 
-async function readJson<T>(file: string, fallback: T): Promise<T> {
-  await ensureFiles();
-  try {
-    return JSON.parse(await fs.readFile(file, "utf8")) as T;
-  } catch {
-    return fallback;
-  }
-}
-
-async function writeJson(file: string, data: unknown) {
-  await ensureFiles();
-  await fs.writeFile(file, JSON.stringify(data, null, 2), "utf8");
+function rowToBooking(r: BookingRow): Booking {
+  return {
+    id: r.id,
+    manageToken: r.manage_token || r.id,
+    createdAt: r.created_at,
+    name: r.name,
+    phone: r.phone,
+    email: r.email || "",
+    note: r.note || undefined,
+    serviceId: r.service_id,
+    serviceName: r.service_name,
+    category: r.category as ServiceCategory,
+    dateKey: r.date_key,
+    time: r.time,
+    durationMinutes: r.duration_minutes || getService(r.service_id)?.durationMinutes || 90,
+    price: r.price,
+    status: (r.status as BookingStatus) || "active",
+    notifiedSevda: r.notified_sevda ?? undefined,
+    notifiedCustomer: r.notified_customer ?? undefined,
+    cancelledAt: r.cancelled_at || undefined,
+  };
 }
 
 function resolveDuration(b: Booking): number {
@@ -80,27 +95,18 @@ function resolveDuration(b: Booking): number {
 }
 
 export async function listBookings(includeCancelled = false): Promise<Booking[]> {
-  const list = await readJson<Booking[]>(bookingsPath, []);
-  const normalized = list.map((b) => ({
-    ...b,
-    status: b.status ?? ("active" as BookingStatus),
-    durationMinutes: resolveDuration(b as Booking),
-    manageToken:
-      b.manageToken ||
-      // äldre poster utan token — id fungerar som fallback i getBookingByManageToken
-      b.id,
-    email: b.email || "",
-  }));
-  if (!includeCancelled) {
-    return normalized.filter((b) => b.status === "active");
-  }
-  return normalized;
+  const sb = requireDb();
+  let q = sb.from("bbs_bookings").select("*").order("created_at", { ascending: false });
+  if (!includeCancelled) q = q.eq("status", "active");
+  const { data, error } = await q;
+  if (error) throw new Error(error.message);
+  return (data as BookingRow[]).map(rowToBooking);
 }
 
 export async function addBooking(
   booking: Omit<Booking, "id" | "createdAt" | "status" | "manageToken">,
 ): Promise<Booking> {
-  const list = await readJson<Booking[]>(bookingsPath, []);
+  const sb = requireDb();
   const active = (await listBookings(false)).filter(
     (b) => b.dateKey === booking.dateKey,
   );
@@ -129,42 +135,69 @@ export async function addBooking(
     );
   }
 
-  const full: Booking = {
-    ...booking,
-    id: crypto.randomUUID(),
-    manageToken: crypto.randomUUID().replace(/-/g, ""),
-    createdAt: new Date().toISOString(),
-    status: "active",
-  };
-  list.unshift(full);
-  await writeJson(bookingsPath, list);
-  return full;
+  const id = crypto.randomUUID();
+  const manageToken = crypto.randomUUID().replace(/-/g, "");
+  const createdAt = new Date().toISOString();
+
+  const { data, error } = await sb
+    .from("bbs_bookings")
+    .insert({
+      id,
+      manage_token: manageToken,
+      created_at: createdAt,
+      name: booking.name,
+      phone: booking.phone,
+      email: booking.email,
+      note: booking.note || null,
+      service_id: booking.serviceId,
+      service_name: booking.serviceName,
+      category: booking.category,
+      date_key: booking.dateKey,
+      time: booking.time,
+      duration_minutes: booking.durationMinutes,
+      price: booking.price,
+      status: "active",
+      notified_sevda: booking.notifiedSevda ?? false,
+      notified_customer: booking.notifiedCustomer ?? false,
+    })
+    .select("*")
+    .single();
+
+  if (error) throw new Error(error.message);
+  return rowToBooking(data as BookingRow);
 }
 
 export async function cancelBooking(id: string): Promise<Booking | null> {
-  const list = await readJson<Booking[]>(bookingsPath, []);
-  const idx = list.findIndex((b) => b.id === id);
-  if (idx === -1) return null;
-  list[idx] = {
-    ...list[idx],
-    status: "cancelled",
-    cancelledAt: new Date().toISOString(),
-  };
-  await writeJson(bookingsPath, list);
-  return list[idx];
+  const sb = requireDb();
+  const { data, error } = await sb
+    .from("bbs_bookings")
+    .update({
+      status: "cancelled",
+      cancelled_at: new Date().toISOString(),
+    })
+    .eq("id", id)
+    .select("*")
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  return data ? rowToBooking(data as BookingRow) : null;
 }
 
 export async function getBookingByManageToken(
   token: string,
 ): Promise<Booking | null> {
   if (!token) return null;
-  const list = await listBookings(true);
-  return (
-    list.find((b) => b.manageToken === token) ??
-    // bakåtkompatibelt om gammal bokning saknar token
-    list.find((b) => b.id === token) ??
-    null
-  );
+  const sb = requireDb();
+  const { data, error } = await sb
+    .from("bbs_bookings")
+    .select("*")
+    .eq("manage_token", token)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  if (data) return rowToBooking(data as BookingRow);
+
+  const byId = await sb.from("bbs_bookings").select("*").eq("id", token).maybeSingle();
+  if (byId.error) throw new Error(byId.error.message);
+  return byId.data ? rowToBooking(byId.data as BookingRow) : null;
 }
 
 export async function cancelBookingByToken(
@@ -180,12 +213,20 @@ export async function updateBookingNotifications(
   id: string,
   flags: { notifiedSevda?: boolean; notifiedCustomer?: boolean },
 ): Promise<Booking | null> {
-  const list = await readJson<Booking[]>(bookingsPath, []);
-  const idx = list.findIndex((b) => b.id === id);
-  if (idx === -1) return null;
-  list[idx] = { ...list[idx], ...flags };
-  await writeJson(bookingsPath, list);
-  return list[idx];
+  const sb = requireDb();
+  const patch: Record<string, boolean> = {};
+  if (flags.notifiedSevda !== undefined) patch.notified_sevda = flags.notifiedSevda;
+  if (flags.notifiedCustomer !== undefined)
+    patch.notified_customer = flags.notifiedCustomer;
+
+  const { data, error } = await sb
+    .from("bbs_bookings")
+    .update(patch)
+    .eq("id", id)
+    .select("*")
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  return data ? rowToBooking(data as BookingRow) : null;
 }
 
 export function slotKey(dateKey: string, time: string) {
@@ -193,7 +234,10 @@ export function slotKey(dateKey: string, time: string) {
 }
 
 export async function listClosedSlots(): Promise<ClosedStore> {
-  return readJson<ClosedStore>(closedPath, []);
+  const sb = requireDb();
+  const { data, error } = await sb.from("bbs_closed_slots").select("slot_key");
+  if (error) throw new Error(error.message);
+  return (data || []).map((r: { slot_key: string }) => r.slot_key);
 }
 
 export async function setSlotClosed(
@@ -201,22 +245,27 @@ export async function setSlotClosed(
   time: string,
   closed: boolean,
 ) {
+  const sb = requireDb();
   const key = slotKey(dateKey, time);
-  let list = await listClosedSlots();
   if (closed) {
-    if (!list.includes(key)) list.push(key);
+    const { error } = await sb
+      .from("bbs_closed_slots")
+      .upsert({ slot_key: key }, { onConflict: "slot_key" });
+    if (error) throw new Error(error.message);
   } else {
-    list = list.filter((k) => k !== key);
+    const { error } = await sb.from("bbs_closed_slots").delete().eq("slot_key", key);
+    if (error) throw new Error(error.message);
   }
-  await writeJson(closedPath, list);
-  return list;
+  return listClosedSlots();
 }
 
 export async function listExtraSlots(): Promise<ExtraStore> {
-  return readJson<ExtraStore>(extraPath, []);
+  const sb = requireDb();
+  const { data, error } = await sb.from("bbs_extra_slots").select("slot_key");
+  if (error) throw new Error(error.message);
+  return (data || []).map((r: { slot_key: string }) => r.slot_key);
 }
 
-/** Standard + Sevdas tillagda tider för en dag, sorterade */
 export async function getStartsForDate(dateKey: string): Promise<string[]> {
   const extra = await listExtraSlots();
   const custom = extra
@@ -227,6 +276,7 @@ export async function getStartsForDate(dateKey: string): Promise<string[]> {
 }
 
 export async function addExtraSlot(dateKey: string, time: string) {
+  const sb = requireDb();
   const normalized = time.trim();
   if (!isValidStartTime(normalized)) {
     throw new Error(
@@ -238,15 +288,16 @@ export async function addExtraSlot(dateKey: string, time: string) {
     throw new Error("Tiden finns redan den dagen.");
   }
   const key = slotKey(dateKey, normalized);
-  const list = await listExtraSlots();
-  list.push(key);
-  await writeJson(extraPath, list);
-  // Om den var stängd tidigare — öppna den
+  const { error } = await sb
+    .from("bbs_extra_slots")
+    .upsert({ slot_key: key }, { onConflict: "slot_key" });
+  if (error) throw new Error(error.message);
   await setSlotClosed(dateKey, normalized, false);
   return getDaySchedule(dateKey);
 }
 
 export async function removeExtraSlot(dateKey: string, time: string) {
+  const sb = requireDb();
   if ((DAY_SLOTS as readonly string[]).includes(time)) {
     throw new Error("Standardtider kan inte tas bort — stäng dem i stället.");
   }
@@ -255,8 +306,8 @@ export async function removeExtraSlot(dateKey: string, time: string) {
     throw new Error("Tiden är bokad — avboka först.");
   }
   const key = slotKey(dateKey, time);
-  const list = (await listExtraSlots()).filter((k) => k !== key);
-  await writeJson(extraPath, list);
+  const { error } = await sb.from("bbs_extra_slots").delete().eq("slot_key", key);
+  if (error) throw new Error(error.message);
   await setSlotClosed(dateKey, time, false);
   return getDaySchedule(dateKey);
 }
@@ -288,7 +339,6 @@ export async function getOpenTimesForDate(
 
 export type PublicSlotStatus = "open" | "booked" | "closed";
 
-/** Alla starttider med status — för röd/vit i bokningsvyn */
 export async function getPublicSlotsForDate(
   dateKey: string,
   durationMinutes: number,
@@ -319,7 +369,6 @@ export async function getPublicSlotsForDate(
   });
 }
 
-/** Om någon dag har minst en ledig start för denna behandling */
 export async function dayHasOpenSlot(
   dateKey: string,
   durationMinutes: number,

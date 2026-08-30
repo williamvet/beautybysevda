@@ -18,11 +18,13 @@ import {
 import { sendCancelEmails } from "@/lib/email";
 
 function expectedPassword() {
-  return process.env.SEVDA_PASSWORD?.trim() || "sevda2026";
+  return process.env.SEVDA_PASSWORD?.trim() || "";
 }
 
 function authorized(req: NextRequest) {
-  return req.headers.get("x-sevda-password") === expectedPassword();
+  const expected = expectedPassword();
+  if (!expected) return false;
+  return req.headers.get("x-sevda-password") === expected;
 }
 
 function unauthorized() {

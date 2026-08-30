@@ -36,3 +36,8 @@ create table if not exists bbs_extra_slots (
 alter table bbs_bookings enable row level security;
 alter table bbs_closed_slots enable row level security;
 alter table bbs_extra_slots enable row level security;
+
+-- Förhindra dubbelbokning på samma starttid (aktiva)
+create unique index if not exists bbs_bookings_active_slot_uidx
+  on bbs_bookings (date_key, time)
+  where status = 'active';

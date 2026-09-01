@@ -116,3 +116,37 @@ export function formatDurationLabel(minutes: number) {
   const m = minutes % 60;
   return m === 0 ? `${h} tim` : `${h} tim ${m} min`;
 }
+
+/** Dagens datum i Sverige (YYYY-MM-DD) — uppdateras automatiskt varje dygn. */
+export function todayDateKeyStockholm() {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Europe/Stockholm",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+}
+
+export function isPastDateKey(dateKey: string) {
+  return dateKey < todayDateKeyStockholm();
+}
+
+function stockholmMinutesNow() {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Europe/Stockholm",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(new Date());
+  const h = Number(parts.find((p) => p.type === "hour")?.value ?? "0");
+  const m = Number(parts.find((p) => p.type === "minute")?.value ?? "0");
+  return h * 60 + m;
+}
+
+/** Passerad dag, eller starttid som redan gått idag. */
+export function isSlotInPast(dateKey: string, time: string) {
+  const today = todayDateKeyStockholm();
+  if (dateKey < today) return true;
+  if (dateKey > today) return false;
+  return timeToMinutes(time) <= stockholmMinutesNow();
+}

@@ -2,6 +2,8 @@ import {
   DAY_SLOTS,
   blockEndMinutes,
   filterOpenStarts,
+  isPastDateKey,
+  isSlotInPast,
   isValidStartTime,
   rangesOverlap,
   timeToMinutes,
@@ -107,6 +109,11 @@ export async function addBooking(
   booking: Omit<Booking, "id" | "createdAt" | "status" | "manageToken">,
 ): Promise<Booking> {
   const sb = requireDb();
+
+  if (isSlotInPast(booking.dateKey, booking.time)) {
+    throw new Error("Den tiden har redan passerat.");
+  }
+
   const active = (await listBookings(false)).filter(
     (b) => b.dateKey === booking.dateKey,
   );
@@ -127,7 +134,7 @@ export async function addBooking(
       .filter((k) => k.startsWith(`${booking.dateKey}|`))
       .map((k) => k.split("|")[1]),
     starts,
-  });
+  }).filter((t) => !isSlotInPast(booking.dateKey, t));
 
   if (!open.includes(booking.time)) {
     throw new Error(
@@ -316,6 +323,8 @@ export async function getOpenTimesForDate(
   dateKey: string,
   durationMinutes: number,
 ): Promise<string[]> {
+  if (isPastDateKey(dateKey)) return [];
+
   const [active, closed, starts] = await Promise.all([
     listBookings(false),
     listClosedSlots(),
@@ -334,7 +343,7 @@ export async function getOpenTimesForDate(
     })),
     closedTimes,
     starts,
-  });
+  }).filter((time) => !isSlotInPast(dateKey, time));
 }
 
 export type PublicSlotStatus = "open" | "booked" | "closed";
@@ -356,6 +365,7 @@ export async function getPublicSlotsForDate(
   );
 
   return starts.map((time) => {
+    if (isSlotInPast(dateKey, time)) return { time, status: "closed" as const };
     if (openSet.has(time)) return { time, status: "open" as const };
     if (closedSet.has(time)) return { time, status: "closed" as const };
     const occupied = dayBookings.some((b) => {

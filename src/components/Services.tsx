@@ -80,6 +80,11 @@ export function Services() {
               </li>
             ))}
           </ul>
+
+          <p className="mt-6 text-sm leading-relaxed text-ink/65">
+            Vill du ha både naglar och fransar samma dag? Boka två lediga tider i
+            rad (t.ex. 10:00 och 12:15) — en tid per behandling.
+          </p>
         </div>
       </div>
     </section>

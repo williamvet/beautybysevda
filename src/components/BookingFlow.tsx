@@ -7,6 +7,7 @@ import {
   BOOKING_MONTH,
   BOOKING_YEAR,
   daysInMonth,
+  isPastDateKey,
   monthLabel,
   toDateKey,
   weekdayLabels,
@@ -400,7 +401,12 @@ function BookingWizard() {
           <p className="mt-2 text-sm text-ink-muted">
             {selectedService.name} tar ca{" "}
             {formatDuration(selectedService.durationMinutes)} + 15 min paus.
-            Starttider: 10:00, 12:15, 14:30, 16:45. Röd = upptagen, vit = ledig.
+            Starttider: 10:00, 12:15, 14:30, 16:45. Röd = upptagen, vit = ledig,
+            grå dag = passerad.
+          </p>
+          <p className="mt-3 text-sm leading-relaxed text-ink/70">
+            Vill du ha både naglar och fransar samma dag? Boka två lediga tider i
+            rad (t.ex. 10:00 och 12:15) — en bokning per behandling.
           </p>
 
           <div className="mt-8 grid grid-cols-7 gap-1 text-center text-[10px] uppercase tracking-wider text-ink-muted">
@@ -418,25 +424,30 @@ function BookingWizard() {
               }
 
               const key = toDateKey(BOOKING_YEAR, BOOKING_MONTH, day);
+              const past = isPastDateKey(key);
               const openCount = dayOpenCounts[key];
-              const available = openCount === undefined || openCount > 0;
+              const available =
+                !past && (openCount === undefined || openCount > 0);
               const selected = dateKey === key;
 
               return (
                 <button
                   key={key}
                   type="button"
-                  disabled={openCount === 0}
+                  disabled={past || openCount === 0}
                   onClick={() => {
+                    if (past) return;
                     setDateKey(key);
                     setTime(null);
                   }}
                   className={`aspect-square text-sm transition ${
-                    selected
-                      ? "bg-ink text-white"
-                      : available
-                        ? "bg-bg-soft text-ink hover:bg-gold/25"
-                        : "cursor-not-allowed text-ink-muted/30"
+                    past
+                      ? "cursor-not-allowed bg-neutral-100 text-ink-muted/30"
+                      : selected
+                        ? "bg-ink text-white"
+                        : available
+                          ? "bg-bg-soft text-ink hover:bg-gold/25"
+                          : "cursor-not-allowed text-ink-muted/30"
                   }`}
                 >
                   {day}

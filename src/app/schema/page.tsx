@@ -217,10 +217,10 @@ export default function SevdaPage() {
     }
   }
 
-  async function closeTwoWeeks() {
+  async function closeBusyPeriod() {
     if (
       !confirm(
-        "Stäng bara FRANSAR 2 sep–16 sep (röda)? Naglar förblir bokningsbara. Inga mejl skickas.",
+        "Stäng så här (röda, inga mejl):\n• Fransar: 2–16 sep (2 veckor)\n• Naglar: 2–6 sep (t.o.m. lördag)\n\nFortsätt?",
       )
     )
       return;
@@ -228,21 +228,43 @@ export default function SevdaPage() {
     setError("");
     setHint("");
     try {
-      const res = await fetch("/api/sevda", {
+      const common = {
+        action: "close-range" as const,
+        dateKey,
+      };
+      const fransar = await fetch("/api/sevda", {
         method: "POST",
         headers: headers(),
         body: JSON.stringify({
-          action: "close-range",
+          ...common,
           fromDateKey: "2026-09-02",
           toDateKey: "2026-09-16",
           category: "fransar",
-          dateKey,
         }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Kunde inte stänga");
-      setHint(data.message || "Fransar stängda.");
-      if (data.schedule) setSchedule(data.schedule);
+      const fransarData = await fransar.json();
+      if (!fransar.ok)
+        throw new Error(fransarData.error || "Kunde inte stänga fransar");
+
+      const naglar = await fetch("/api/sevda", {
+        method: "POST",
+        headers: headers(),
+        body: JSON.stringify({
+          ...common,
+          fromDateKey: "2026-09-02",
+          toDateKey: "2026-09-06",
+          category: "naglar",
+        }),
+      });
+      const naglarData = await naglar.json();
+      if (!naglar.ok)
+        throw new Error(naglarData.error || "Kunde inte stänga naglar");
+
+      setHint(
+        "Klart: fransar stängda 2–16 sep, naglar stängda 2–6 sep (ser fullbokat ut).",
+      );
+      if (naglarData.schedule) setSchedule(naglarData.schedule);
+      else if (fransarData.schedule) setSchedule(fransarData.schedule);
       else await load(dateKey);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Fel");
@@ -336,10 +358,10 @@ export default function SevdaPage() {
         <button
           type="button"
           disabled={busy}
-          onClick={closeTwoWeeks}
+          onClick={closeBusyPeriod}
           className="mt-6 w-full rounded-full border border-red-300 bg-red-50 py-3 text-[11px] uppercase tracking-[0.16em] text-red-700 transition hover:bg-red-100 disabled:opacity-50"
         >
-          Stäng bara fransar 2–16 sep (naglar öppna)
+          Stäng: fransar 2 v + naglar t.o.m. lör
         </button>
 
         <section className="mt-8">

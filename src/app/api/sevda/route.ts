@@ -44,6 +44,7 @@ export async function POST(req: NextRequest) {
       id?: string;
       fromDateKey?: string;
       toDateKey?: string;
+      category?: "naglar" | "fransar";
     };
 
     if (body.action === "login") {
@@ -71,8 +72,16 @@ export async function POST(req: NextRequest) {
           { status: 400 },
         );
       }
+      const category =
+        body.category === "naglar" || body.category === "fransar"
+          ? body.category
+          : "fransar";
       try {
-        const result = await closeDateRange(body.fromDateKey, body.toDateKey);
+        const result = await closeDateRange(
+          body.fromDateKey,
+          body.toDateKey,
+          category,
+        );
         const schedule = body.dateKey
           ? await getDaySchedule(body.dateKey)
           : await getDaySchedule(body.fromDateKey);
@@ -80,7 +89,7 @@ export async function POST(req: NextRequest) {
           ok: true,
           ...result,
           schedule,
-          message: `${result.closed} tider stängda ${result.fromDateKey}–${result.toDateKey}.`,
+          message: `${result.closed} ${category}-tider stängda ${result.fromDateKey}–${result.toDateKey}. Naglar kan fortfarande bokas.`,
         });
       } catch (e) {
         return NextResponse.json(

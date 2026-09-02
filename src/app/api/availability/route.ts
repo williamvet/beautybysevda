@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getService } from "@/data/services";
+import { getService, type ServiceCategory } from "@/data/services";
 import {
   BOOKING_MONTH,
   BOOKING_YEAR,
@@ -24,11 +24,12 @@ export async function GET(req: NextRequest) {
 
     const service = serviceId ? getService(serviceId) : null;
     const duration = service?.durationMinutes ?? STANDARD_DURATION_MINUTES;
+    const category = (service?.category ?? null) as ServiceCategory | null;
 
     if (date) {
       const [open, slots, allStarts] = await Promise.all([
-        getOpenTimesForDate(date, duration),
-        getPublicSlotsForDate(date, duration),
+        getOpenTimesForDate(date, duration, category),
+        getPublicSlotsForDate(date, duration, category),
         getStartsForDate(date),
       ]);
       return NextResponse.json({
@@ -39,6 +40,7 @@ export async function GET(req: NextRequest) {
         durationMinutes: duration,
         bufferMinutes: BUFFER_MINUTES,
         serviceName: service?.name ?? null,
+        category,
       });
     }
 
@@ -47,8 +49,8 @@ export async function GET(req: NextRequest) {
 
     for (let day = 1; day <= total; day++) {
       const dateKey = toDateKey(BOOKING_YEAR, BOOKING_MONTH, day);
-      const has = await dayHasOpenSlot(dateKey, duration);
-      const open = has ? await getOpenTimesForDate(dateKey, duration) : [];
+      const has = await dayHasOpenSlot(dateKey, duration, category);
+      const open = has ? await getOpenTimesForDate(dateKey, duration, category) : [];
       days.push({ dateKey, day, openCount: open.length });
     }
 
@@ -58,6 +60,7 @@ export async function GET(req: NextRequest) {
       durationMinutes: duration,
       bufferMinutes: BUFFER_MINUTES,
       allStarts: DAY_SLOTS,
+      category,
       days,
     });
   } catch (error) {

@@ -68,7 +68,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Okänd tjänst." }, { status: 400 });
     }
 
-    const open = await getOpenTimesForDate(dateKey, service.durationMinutes);
+    const open = await getOpenTimesForDate(
+      dateKey,
+      service.durationMinutes,
+      service.category,
+    );
     if (!open.includes(time)) {
       return NextResponse.json(
         {

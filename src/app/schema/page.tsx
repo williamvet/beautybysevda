@@ -220,7 +220,7 @@ export default function SevdaPage() {
   async function closeTwoWeeks() {
     if (
       !confirm(
-        "Stäng alla tider 2 sep–16 sep (röda på bokningssidan)? Inga mejl skickas.",
+        "Stäng bara FRANSAR 2 sep–16 sep (röda)? Naglar förblir bokningsbara. Inga mejl skickas.",
       )
     )
       return;
@@ -235,12 +235,13 @@ export default function SevdaPage() {
           action: "close-range",
           fromDateKey: "2026-09-02",
           toDateKey: "2026-09-16",
+          category: "fransar",
           dateKey,
         }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Kunde inte stänga");
-      setHint(data.message || "Tider stängda.");
+      setHint(data.message || "Fransar stängda.");
       if (data.schedule) setSchedule(data.schedule);
       else await load(dateKey);
     } catch (err) {
@@ -338,7 +339,7 @@ export default function SevdaPage() {
           onClick={closeTwoWeeks}
           className="mt-6 w-full rounded-full border border-red-300 bg-red-50 py-3 text-[11px] uppercase tracking-[0.16em] text-red-700 transition hover:bg-red-100 disabled:opacity-50"
         >
-          Stäng 2 sep–16 sep (väntar fransar)
+          Stäng bara fransar 2–16 sep (naglar öppna)
         </button>
 
         <section className="mt-8">

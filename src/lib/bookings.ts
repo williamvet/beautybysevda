@@ -119,7 +119,7 @@ export async function addBooking(
   );
 
   const closed = await listClosedSlots();
-  if (closed.includes(slotKey(booking.dateKey, booking.time))) {
+  if (isClosedFor(closed, booking.dateKey, booking.time, booking.category)) {
     throw new Error("Tiden är stängd.");
   }
 
@@ -130,9 +130,7 @@ export async function addBooking(
       time: b.time,
       durationMinutes: resolveDuration(b),
     })),
-    closedTimes: closed
-      .filter((k) => k.startsWith(`${booking.dateKey}|`))
-      .map((k) => k.split("|")[1]),
+    closedTimes: closedTimesForDay(closed, booking.dateKey, booking.category),
     starts,
   }).filter((t) => !isSlotInPast(booking.dateKey, t));
 
@@ -236,8 +234,43 @@ export async function updateBookingNotifications(
   return data ? rowToBooking(data as BookingRow) : null;
 }
 
-export function slotKey(dateKey: string, time: string) {
-  return `${dateKey}|${time}`;
+export function slotKey(dateKey: string, time: string, category?: ServiceCategory) {
+  return category ? `${dateKey}|${time}|${category}` : `${dateKey}|${time}`;
+}
+
+/** Stängd för alla, eller specifikt för category. */
+function isClosedFor(
+  closedKeys: string[],
+  dateKey: string,
+  time: string,
+  category?: ServiceCategory | null,
+) {
+  if (closedKeys.includes(slotKey(dateKey, time))) return true;
+  if (category && closedKeys.includes(slotKey(dateKey, time, category))) {
+    return true;
+  }
+  return false;
+}
+
+function closedTimesForDay(
+  closedKeys: string[],
+  dateKey: string,
+  category?: ServiceCategory | null,
+) {
+  const times = new Set<string>();
+  const prefix = `${dateKey}|`;
+  for (const key of closedKeys) {
+    if (!key.startsWith(prefix)) continue;
+    const parts = key.split("|");
+    const time = parts[1];
+    if (!time) continue;
+    if (parts.length === 2) {
+      times.add(time);
+      continue;
+    }
+    if (category && parts[2] === category) times.add(time);
+  }
+  return [...times];
 }
 
 export async function listClosedSlots(): Promise<ClosedStore> {
@@ -251,9 +284,10 @@ export async function setSlotClosed(
   dateKey: string,
   time: string,
   closed: boolean,
+  category?: ServiceCategory,
 ) {
   const sb = requireDb();
-  const key = slotKey(dateKey, time);
+  const key = slotKey(dateKey, time, category);
   if (closed) {
     const { error } = await sb
       .from("bbs_closed_slots")
@@ -266,29 +300,52 @@ export async function setSlotClosed(
   return listClosedSlots();
 }
 
-/** Stäng alla standardtider från fromDateKey t.o.m. toDateKey (inklusive). */
-export async function closeDateRange(fromDateKey: string, toDateKey: string) {
+/**
+ * Stäng standardtider from→to.
+ * category = t.ex. "fransar" → bara den kategorin (naglar kan fortfarande bokas).
+ * Tar bort gamla “stäng allt”-nycklar i intervallet så naglar öppnas igen.
+ */
+export async function closeDateRange(
+  fromDateKey: string,
+  toDateKey: string,
+  category?: ServiceCategory,
+) {
   const sb = requireDb();
   if (!/^\d{4}-\d{2}-\d{2}$/.test(fromDateKey) || !/^\d{4}-\d{2}-\d{2}$/.test(toDateKey)) {
     throw new Error("Ogiltigt datum.");
   }
   if (fromDateKey > toDateKey) throw new Error("Från-datum måste vara före till-datum.");
 
+  const fullKeys: string[] = [];
   const rows: { slot_key: string }[] = [];
   const start = new Date(`${fromDateKey}T12:00:00Z`);
   const end = new Date(`${toDateKey}T12:00:00Z`);
   for (let d = new Date(start); d <= end; d.setUTCDate(d.getUTCDate() + 1)) {
     const key = d.toISOString().slice(0, 10);
     for (const time of DAY_SLOTS) {
-      rows.push({ slot_key: slotKey(key, time) });
+      fullKeys.push(slotKey(key, time));
+      rows.push({ slot_key: slotKey(key, time, category) });
     }
+  }
+
+  if (category) {
+    const { error: delErr } = await sb
+      .from("bbs_closed_slots")
+      .delete()
+      .in("slot_key", fullKeys);
+    if (delErr) throw new Error(delErr.message);
   }
 
   const { error } = await sb
     .from("bbs_closed_slots")
     .upsert(rows, { onConflict: "slot_key" });
   if (error) throw new Error(error.message);
-  return { closed: rows.length, fromDateKey, toDateKey };
+  return {
+    closed: rows.length,
+    fromDateKey,
+    toDateKey,
+    category: category ?? "all",
+  };
 }
 
 export async function listExtraSlots(): Promise<ExtraStore> {
@@ -347,6 +404,7 @@ export async function removeExtraSlot(dateKey: string, time: string) {
 export async function getOpenTimesForDate(
   dateKey: string,
   durationMinutes: number,
+  category?: ServiceCategory | null,
 ): Promise<string[]> {
   if (isPastDateKey(dateKey)) return [];
 
@@ -356,9 +414,6 @@ export async function getOpenTimesForDate(
     getStartsForDate(dateKey),
   ]);
   const dayBookings = active.filter((b) => b.dateKey === dateKey);
-  const closedTimes = closed
-    .filter((k) => k.startsWith(`${dateKey}|`))
-    .map((k) => k.split("|")[1]);
 
   return filterOpenStarts({
     durationMinutes,
@@ -366,7 +421,7 @@ export async function getOpenTimesForDate(
       time: b.time,
       durationMinutes: resolveDuration(b),
     })),
-    closedTimes,
+    closedTimes: closedTimesForDay(closed, dateKey, category),
     starts,
   }).filter((time) => !isSlotInPast(dateKey, time));
 }
@@ -376,18 +431,17 @@ export type PublicSlotStatus = "open" | "booked" | "closed";
 export async function getPublicSlotsForDate(
   dateKey: string,
   durationMinutes: number,
+  category?: ServiceCategory | null,
 ): Promise<{ time: string; status: PublicSlotStatus }[]> {
   const [active, closed, open, starts] = await Promise.all([
     listBookings(false),
     listClosedSlots(),
-    getOpenTimesForDate(dateKey, durationMinutes),
+    getOpenTimesForDate(dateKey, durationMinutes, category),
     getStartsForDate(dateKey),
   ]);
   const openSet = new Set(open);
   const dayBookings = active.filter((b) => b.dateKey === dateKey);
-  const closedSet = new Set(
-    closed.filter((k) => k.startsWith(`${dateKey}|`)).map((k) => k.split("|")[1]),
-  );
+  const closedSet = new Set(closedTimesForDay(closed, dateKey, category));
 
   return starts.map((time) => {
     // Passerade tider = grå (closed). Stängda + bokade = röda (booked).
@@ -408,8 +462,9 @@ export async function getPublicSlotsForDate(
 export async function dayHasOpenSlot(
   dateKey: string,
   durationMinutes: number,
+  category?: ServiceCategory | null,
 ) {
-  const open = await getOpenTimesForDate(dateKey, durationMinutes);
+  const open = await getOpenTimesForDate(dateKey, durationMinutes, category);
   return open.length > 0;
 }
 
@@ -434,7 +489,10 @@ export async function getDaySchedule(dateKey: string) {
         return t >= start && t < end;
       }) ?? null;
 
-    const isClosed = closed.includes(slotKey(dateKey, time));
+    const isClosed =
+      closed.includes(slotKey(dateKey, time)) ||
+      closed.includes(slotKey(dateKey, time, "fransar")) ||
+      closed.includes(slotKey(dateKey, time, "naglar"));
     const isStart = booking?.time === time;
     const isCustom = customSet.has(time);
 

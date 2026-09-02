@@ -113,10 +113,11 @@ async function sendViaBrevo(input: {
         .replace(/<[^>]+>/g, " ")
         .replace(/\s+/g, " ")
         .trim(),
+    // Försök stänga av Brevo-spårning (annars blir länkar långa blå sendibt2-URL:er).
     headers: {
-      "X-Mailin-Track": "false",
-      "X-Mailin-Track-Clicks": "false",
-      "X-Mailin-Track-Opens": "false",
+      "X-Mailin-Track": "0",
+      "X-Mailin-Track-Clicks": "0",
+      "X-Mailin-Track-Opens": "0",
     },
   };
 
@@ -282,16 +283,31 @@ function formatSvDate(dateKey: string) {
 }
 
 /**
- * Avbokningsknapp — en enda länk (HTTPS).
- * Synlig text = "Avboka tid", inte hela URL:en.
+ * Avbokning — enkel textlänk + knapp.
+ * Synlig text = "Avboka din tid — tryck här" (inte hela URL:en).
+ * Outlook-vänlig tabellknapp.
  */
 function cancelButton(url: string) {
+  const safe = esc(url);
   return `
-<table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin:24px 0 0;">
+<div style="margin:28px 0 8px;text-align:center;">
+  <p style="margin:0 0 14px;font-family:Helvetica,Arial,sans-serif;font-size:15px;line-height:1.5;color:#333;">
+    Vill du avboka? Tryck här:
+  </p>
+  <a href="${safe}"
+     target="_blank"
+     rel="noopener noreferrer"
+     style="font-family:Helvetica,Arial,sans-serif;font-size:16px;font-weight:bold;color:#a0894a;text-decoration:underline;">
+    Avboka din tid — tryck här
+  </a>
+</div>
+<table role="presentation" cellspacing="0" cellpadding="0" border="0" align="center" style="margin:18px auto 0;">
   <tr>
-    <td bgcolor="#111111" style="border-radius:999px;">
-      <a href="${esc(url)}"
-         style="display:inline-block;padding:14px 28px;font-family:Helvetica,Arial,sans-serif;font-size:12px;letter-spacing:0.14em;text-transform:uppercase;text-decoration:none;color:#ffffff;">
+    <td align="center" bgcolor="#111111" style="border-radius:999px;background-color:#111111;">
+      <a href="${safe}"
+         target="_blank"
+         rel="noopener noreferrer"
+         style="display:inline-block;padding:14px 32px;font-family:Helvetica,Arial,sans-serif;font-size:12px;letter-spacing:0.14em;text-transform:uppercase;text-decoration:none;color:#ffffff;background-color:#111111;border-radius:999px;">
         Avboka tid
       </a>
     </td>
@@ -371,8 +387,7 @@ export async function sendCustomerBookingEmail(b: CalendarBooking) {
       </div>`
     : "";
 
-  // Ingen rå URL i text — den blir blå länk i många mejlprogram.
-  // Avbokning bara via knappen i HTML-mejlet.
+  // Ren text utan URL:er — annars visar Hotmail/Outlook långa blå tracking-länkar.
   const text = `Tack for att du bokar hos mig, ${first}!
 
 Din tid: ${b.dateKey} kl ${b.time}
@@ -380,7 +395,9 @@ ${b.serviceName}
 ${b.price} kr · ca ${b.durationMinutes} min
 ${addressText}
 Betalning: kontant pa plats.
-Avboka senast 24 timmar innan: anvand knappen "Avboka tid" i mejlet.
+
+Vill du avboka? Oppna detta mejl (inte som enbart text) och tryck pa "Avboka din tid — tryck har".
+Du kan ocksa skriva till @${siteConfig.instagramHandle} pa Instagram.
 
 Vi ses snart!
 — Sevda`;
@@ -410,10 +427,10 @@ Vi ses snart!
         Betalning: kontant på plats.<br/>
         Avboka senast 24&nbsp;timmar innan.
       </p>
-      <p style="margin:14px 0 0;font-size:13px;color:#888;">
-        Öppna bilagan för kalendern.
-      </p>
       ${cancelButton(cancel)}
+      <p style="margin:22px 0 0;font-size:13px;color:#888;">
+        Kalenderfil finns bifogad i mejlet.
+      </p>
       <p style="margin:26px 0 0;font-size:15px;color:#1a1a1a;">Vi ses snart!<br/><span style="color:#888;font-size:13px;">— Sevda</span></p>
     `),
   });

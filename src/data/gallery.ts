@@ -17,6 +17,30 @@ export type GalleryItem = {
  */
 export const galleryItems: GalleryItem[] = [
   {
+    id: 9,
+    label: "French vit",
+    category: "naglar",
+    src: "/images/french-vit.jpeg",
+    focus: "center 25%",
+    onHome: false,
+  },
+  {
+    id: 10,
+    label: "Naglar med blommor",
+    category: "naglar",
+    src: "/images/naglar-blommor.jpeg",
+    focus: "center 22%",
+    onHome: false,
+  },
+  {
+    id: 11,
+    label: "French blå",
+    category: "naglar",
+    src: "/images/french-bla.jpeg",
+    focus: "center 28%",
+    onHome: false,
+  },
+  {
     id: 8,
     label: "Rosa naglar",
     category: "naglar",

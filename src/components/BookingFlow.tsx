@@ -402,8 +402,8 @@ function BookingWizard() {
           <p className="mt-2 text-sm text-ink-muted">
             {selectedService.name} tar ca{" "}
             {formatDuration(selectedService.durationMinutes)} + 15 min paus.
-            Starttider: 10:00, 12:15, 14:30, 16:45. Röd = upptagen, vit = ledig,
-            grå dag = passerad.
+            Starttider: 10:00, 12:15, 14:30, 16:45. Röd = upptagen/stängd, vit =
+            ledig. Grå tid = redan passerad idag. Grå dag = passerad.
           </p>
           <p className="mt-3 text-sm leading-relaxed text-ink/70">
             Vill du ha både naglar och fransar samma dag? Boka två lediga tider i

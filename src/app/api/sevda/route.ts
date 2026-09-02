@@ -12,6 +12,7 @@ import {
   getDaySchedule,
   listBookings,
   setSlotClosed,
+  closeDateRange,
   addExtraSlot,
   removeExtraSlot,
 } from "@/lib/bookings";
@@ -31,7 +32,7 @@ function unauthorized() {
   return NextResponse.json({ error: "Fel lösenord." }, { status: 401 });
 }
 
-/** POST { action: "login" | "toggle-slot" | "cancel" | "add-slot" | "remove-slot" } */
+/** POST { action: "login" | "toggle-slot" | "close-range" | "cancel" | "add-slot" | "remove-slot" } */
 export async function POST(req: NextRequest) {
   try {
     const body = (await req.json()) as {
@@ -41,6 +42,8 @@ export async function POST(req: NextRequest) {
       time?: string;
       closed?: boolean;
       id?: string;
+      fromDateKey?: string;
+      toDateKey?: string;
     };
 
     if (body.action === "login") {
@@ -59,6 +62,32 @@ export async function POST(req: NextRequest) {
       await setSlotClosed(body.dateKey, body.time, body.closed);
       const schedule = await getDaySchedule(body.dateKey);
       return NextResponse.json({ ok: true, schedule });
+    }
+
+    if (body.action === "close-range") {
+      if (!body.fromDateKey || !body.toDateKey) {
+        return NextResponse.json(
+          { error: "Saknar från-/till-datum." },
+          { status: 400 },
+        );
+      }
+      try {
+        const result = await closeDateRange(body.fromDateKey, body.toDateKey);
+        const schedule = body.dateKey
+          ? await getDaySchedule(body.dateKey)
+          : await getDaySchedule(body.fromDateKey);
+        return NextResponse.json({
+          ok: true,
+          ...result,
+          schedule,
+          message: `${result.closed} tider stängda ${result.fromDateKey}–${result.toDateKey}.`,
+        });
+      } catch (e) {
+        return NextResponse.json(
+          { error: e instanceof Error ? e.message : "Kunde inte stänga." },
+          { status: 400 },
+        );
+      }
     }
 
     if (body.action === "add-slot") {

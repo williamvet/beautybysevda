@@ -217,6 +217,39 @@ export default function SevdaPage() {
     }
   }
 
+  async function closeTwoWeeks() {
+    if (
+      !confirm(
+        "Stäng alla tider 2 sep–16 sep (röda på bokningssidan)? Inga mejl skickas.",
+      )
+    )
+      return;
+    setBusy(true);
+    setError("");
+    setHint("");
+    try {
+      const res = await fetch("/api/sevda", {
+        method: "POST",
+        headers: headers(),
+        body: JSON.stringify({
+          action: "close-range",
+          fromDateKey: "2026-09-02",
+          toDateKey: "2026-09-16",
+          dateKey,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Kunde inte stänga");
+      setHint(data.message || "Tider stängda.");
+      if (data.schedule) setSchedule(data.schedule);
+      else await load(dateKey);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Fel");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   function dayLabel(key: string) {
     const [y, m, d] = key.split("-").map(Number);
     const dt = new Date(y, m - 1, d);
@@ -298,6 +331,15 @@ export default function SevdaPage() {
 
         {error ? <p className="mt-4 text-sm text-red-600">{error}</p> : null}
         {hint ? <p className="mt-4 text-sm text-emerald-700">{hint}</p> : null}
+
+        <button
+          type="button"
+          disabled={busy}
+          onClick={closeTwoWeeks}
+          className="mt-6 w-full rounded-full border border-red-300 bg-red-50 py-3 text-[11px] uppercase tracking-[0.16em] text-red-700 transition hover:bg-red-100 disabled:opacity-50"
+        >
+          Stäng 2 sep–16 sep (väntar fransar)
+        </button>
 
         <section className="mt-8">
           <h2 className="text-[11px] uppercase tracking-[0.2em] text-ink-muted">

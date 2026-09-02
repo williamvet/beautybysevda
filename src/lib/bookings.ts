@@ -266,6 +266,31 @@ export async function setSlotClosed(
   return listClosedSlots();
 }
 
+/** Stäng alla standardtider från fromDateKey t.o.m. toDateKey (inklusive). */
+export async function closeDateRange(fromDateKey: string, toDateKey: string) {
+  const sb = requireDb();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(fromDateKey) || !/^\d{4}-\d{2}-\d{2}$/.test(toDateKey)) {
+    throw new Error("Ogiltigt datum.");
+  }
+  if (fromDateKey > toDateKey) throw new Error("Från-datum måste vara före till-datum.");
+
+  const rows: { slot_key: string }[] = [];
+  const start = new Date(`${fromDateKey}T12:00:00Z`);
+  const end = new Date(`${toDateKey}T12:00:00Z`);
+  for (let d = new Date(start); d <= end; d.setUTCDate(d.getUTCDate() + 1)) {
+    const key = d.toISOString().slice(0, 10);
+    for (const time of DAY_SLOTS) {
+      rows.push({ slot_key: slotKey(key, time) });
+    }
+  }
+
+  const { error } = await sb
+    .from("bbs_closed_slots")
+    .upsert(rows, { onConflict: "slot_key" });
+  if (error) throw new Error(error.message);
+  return { closed: rows.length, fromDateKey, toDateKey };
+}
+
 export async function listExtraSlots(): Promise<ExtraStore> {
   const sb = requireDb();
   const { data, error } = await sb.from("bbs_extra_slots").select("slot_key");
@@ -365,9 +390,10 @@ export async function getPublicSlotsForDate(
   );
 
   return starts.map((time) => {
+    // Passerade tider = grå (closed). Stängda + bokade = röda (booked).
     if (isSlotInPast(dateKey, time)) return { time, status: "closed" as const };
     if (openSet.has(time)) return { time, status: "open" as const };
-    if (closedSet.has(time)) return { time, status: "closed" as const };
+    if (closedSet.has(time)) return { time, status: "booked" as const };
     const occupied = dayBookings.some((b) => {
       const start = timeToMinutes(b.time);
       const end = blockEndMinutes(b.time, resolveDuration(b));

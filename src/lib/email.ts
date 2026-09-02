@@ -354,6 +354,22 @@ export async function sendCustomerBookingEmail(b: CalendarBooking) {
   const first = b.name.split(" ")[0] || b.name;
   const when = formatSvDate(b.dateKey);
   const cancel = manageUrl(b.manageToken);
+  const address = process.env.SEVDA_VISIT_ADDRESS?.trim();
+
+  const addressText = address
+    ? `\nAdress: ${address}\nRing pa dorren / hors av dig ca 5 minuter innan nar du ar utanfor.\n`
+    : "\nAdress skickas separat om den saknas har.\n";
+
+  const addressHtml = address
+    ? `
+      <div style="margin:18px 0 0;padding:16px 0;border-top:1px solid #e8e2d8;">
+        <p style="margin:0 0 6px;font-size:11px;letter-spacing:0.2em;text-transform:uppercase;color:#a0894a;">Hitta hit</p>
+        <p style="margin:0;font-size:15px;line-height:1.6;color:#1a1a1a;">${esc(address)}</p>
+        <p style="margin:10px 0 0;font-size:14px;line-height:1.6;color:#555;">
+          Hör av dig ca&nbsp;5&nbsp;minuter innan när du är utanför — så kommer jag och öppnar.
+        </p>
+      </div>`
+    : "";
 
   // Ingen rå URL i text — den blir blå länk i många mejlprogram.
   // Avbokning bara via knappen i HTML-mejlet.
@@ -362,7 +378,7 @@ export async function sendCustomerBookingEmail(b: CalendarBooking) {
 Din tid: ${b.dateKey} kl ${b.time}
 ${b.serviceName}
 ${b.price} kr · ca ${b.durationMinutes} min
-
+${addressText}
 Betalning: kontant pa plats.
 Avboka senast 24 timmar innan: anvand knappen "Avboka tid" i mejlet.
 
@@ -388,6 +404,7 @@ Vi ses snart!
         <p style="margin:0;font-size:15px;color:#333;">${esc(b.serviceName)}</p>
         <p style="margin:6px 0 0;font-size:14px;color:#666;">${b.price}&nbsp;kr · ca ${b.durationMinutes} min</p>
       </div>
+      ${addressHtml}
       ${tipLine(b.category)}
       <p style="margin:18px 0 0;font-size:14px;line-height:1.6;color:#555;">
         Betalning: kontant på plats.<br/>

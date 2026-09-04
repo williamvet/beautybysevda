@@ -231,7 +231,7 @@ async function sendViaResend(input: MailInput): Promise<MailResult> {
   return { ok: true };
 }
 
-/** Brevo — bara till Sevda (admin). Kundmejl får ALDRIG gå här (tr/op-pixel). */
+/** Mejl till Sevda (admin) — Brevo OK. */
 async function sendInternalEmail(input: MailInput): Promise<MailResult> {
   if (isBrevoConfigured()) return sendViaBrevo(input);
   if (isSmtpConfigured()) return sendViaSmtp(input);
@@ -240,22 +240,14 @@ async function sendInternalEmail(input: MailInput): Promise<MailResult> {
 }
 
 /**
- * Kundmejl — ALDRIG Brevo.
- * Brevo injicerar alltid open-tracking (sendibt…/tr/op/…) som syns som blå död länk
- * högst upp i Outlook. Det går inte att stänga av på free-kontot.
+ * Kundmejl — SMTP/Resend först (ingen blå tr/op).
+ * Annars Brevo så bokningsflödet funkar (Brevo kan visa spårningslänk högst upp).
  */
 async function sendCustomerFacingEmail(input: MailInput): Promise<MailResult> {
   if (isSmtpConfigured()) return sendViaSmtp(input);
   if (isResendConfigured()) return sendViaResend(input);
-
-  console.error(
-    "Kundmejl: sätt SMTP_USER+SMTP_PASS (Hotmail app-lösenord) eller RESEND_API_KEY. Brevo används inte — skapar blå tr/op-länk.",
-  );
-  return {
-    ok: false,
-    error:
-      "Kundmejl kräver SMTP/Resend. Brevo lägger in blå tracking-länk högst upp.",
-  };
+  if (isBrevoConfigured()) return sendViaBrevo(input);
+  return { ok: true, skipped: true };
 }
 
 export function isCleanCustomerMailConfigured() {

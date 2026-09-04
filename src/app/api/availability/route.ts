@@ -28,7 +28,7 @@ export async function GET(req: NextRequest) {
       const [open, slots, allStarts] = await Promise.all([
         getOpenTimesForDate(date, duration, category),
         getPublicSlotsForDate(date, duration, category),
-        getStartsForDate(date),
+        getStartsForDate(date, { includeExtras: false }),
       ]);
       return NextResponse.json({
         dateKey: date,

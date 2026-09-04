@@ -393,7 +393,14 @@ export async function listExtraSlots(): Promise<ExtraStore> {
   return (data || []).map((r: { slot_key: string }) => r.slot_key);
 }
 
-export async function getStartsForDate(dateKey: string): Promise<string[]> {
+export async function getStartsForDate(
+  dateKey: string,
+  options?: { includeExtras?: boolean },
+): Promise<string[]> {
+  const includeExtras = options?.includeExtras !== false;
+  if (!includeExtras) {
+    return [...DAY_SLOTS];
+  }
   const extra = await listExtraSlots();
   const custom = extra
     .filter((k) => k.startsWith(`${dateKey}|`))
@@ -449,7 +456,7 @@ export async function getOpenTimesForDate(
   const [active, closed, starts] = await Promise.all([
     listBookings(false),
     listClosedSlots(),
-    getStartsForDate(dateKey),
+    getStartsForDate(dateKey, { includeExtras: false }),
   ]);
   const dayBookings = active.filter((b) => b.dateKey === dateKey);
 
@@ -469,14 +476,14 @@ export async function getMonthOpenCounts(
   durationMinutes: number,
   category?: ServiceCategory | null,
 ): Promise<{ dateKey: string; day: number; openCount: number }[]> {
-  const [active, closed, extras] = await Promise.all([
+  const [active, closed] = await Promise.all([
     listBookings(false),
     listClosedSlots(),
-    listExtraSlots(),
   ]);
 
   const total = daysInMonth(BOOKING_YEAR, BOOKING_MONTH);
   const days: { dateKey: string; day: number; openCount: number }[] = [];
+  const starts = [...DAY_SLOTS];
 
   for (let day = 1; day <= total; day++) {
     const dateKey = toDateKey(BOOKING_YEAR, BOOKING_MONTH, day);
@@ -484,12 +491,6 @@ export async function getMonthOpenCounts(
       days.push({ dateKey, day, openCount: 0 });
       continue;
     }
-    const custom = extras
-      .filter((k) => k.startsWith(`${dateKey}|`))
-      .map((k) => k.split("|")[1]);
-    const starts = [...new Set([...DAY_SLOTS, ...custom])].sort(
-      (a, b) => timeToMinutes(a) - timeToMinutes(b),
-    );
     const dayBookings = active.filter((b) => b.dateKey === dateKey);
     const open = filterOpenStarts({
       durationMinutes,
@@ -516,7 +517,7 @@ export async function getPublicSlotsForDate(
   const [active, closed, starts] = await Promise.all([
     listBookings(false),
     listClosedSlots(),
-    getStartsForDate(dateKey),
+    getStartsForDate(dateKey, { includeExtras: false }),
   ]);
   const dayBookings = active.filter((b) => b.dateKey === dateKey);
   const closedSet = new Set(closedTimesForDay(closed, dateKey, category));

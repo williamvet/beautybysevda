@@ -6,17 +6,15 @@ import {
   BUFFER_MINUTES,
   DAY_SLOTS,
   STANDARD_DURATION_MINUTES,
-  daysInMonth,
-  toDateKey,
 } from "@/data/availability";
 import {
-  dayHasOpenSlot,
+  getMonthOpenCounts,
   getOpenTimesForDate,
   getPublicSlotsForDate,
   getStartsForDate,
 } from "@/lib/bookings";
 
-/** GET ?date=2026-09-05&serviceId=gele-nytt */
+/** GET ?date=2026-09-05&serviceId=gele-nytt  |  GET ?serviceId=… (månad) */
 export async function GET(req: NextRequest) {
   try {
     const date = req.nextUrl.searchParams.get("date");
@@ -44,15 +42,7 @@ export async function GET(req: NextRequest) {
       });
     }
 
-    const total = daysInMonth(BOOKING_YEAR, BOOKING_MONTH);
-    const days: { dateKey: string; day: number; openCount: number }[] = [];
-
-    for (let day = 1; day <= total; day++) {
-      const dateKey = toDateKey(BOOKING_YEAR, BOOKING_MONTH, day);
-      const has = await dayHasOpenSlot(dateKey, duration, category);
-      const open = has ? await getOpenTimesForDate(dateKey, duration, category) : [];
-      days.push({ dateKey, day, openCount: open.length });
-    }
+    const days = await getMonthOpenCounts(duration, category);
 
     return NextResponse.json({
       year: BOOKING_YEAR,

@@ -1,12 +1,16 @@
 import {
+  BOOKING_MONTH,
+  BOOKING_YEAR,
   DAY_SLOTS,
   blockEndMinutes,
+  daysInMonth,
   filterOpenStarts,
   isPastDateKey,
   isSlotInPast,
   isValidStartTime,
   rangesOverlap,
   timeToMinutes,
+  toDateKey,
 } from "@/data/availability";
 import { getService, type ServiceCategory } from "@/data/services";
 import { getSupabase, isSupabaseConfigured } from "@/lib/supabase";
@@ -460,6 +464,48 @@ export async function getOpenTimesForDate(
   }).filter((time) => !isSlotInPast(dateKey, time));
 }
 
+/** En DB-runda för hela månaden — snabb kalender. */
+export async function getMonthOpenCounts(
+  durationMinutes: number,
+  category?: ServiceCategory | null,
+): Promise<{ dateKey: string; day: number; openCount: number }[]> {
+  const [active, closed, extras] = await Promise.all([
+    listBookings(false),
+    listClosedSlots(),
+    listExtraSlots(),
+  ]);
+
+  const total = daysInMonth(BOOKING_YEAR, BOOKING_MONTH);
+  const days: { dateKey: string; day: number; openCount: number }[] = [];
+
+  for (let day = 1; day <= total; day++) {
+    const dateKey = toDateKey(BOOKING_YEAR, BOOKING_MONTH, day);
+    if (isPastDateKey(dateKey)) {
+      days.push({ dateKey, day, openCount: 0 });
+      continue;
+    }
+    const custom = extras
+      .filter((k) => k.startsWith(`${dateKey}|`))
+      .map((k) => k.split("|")[1]);
+    const starts = [...new Set([...DAY_SLOTS, ...custom])].sort(
+      (a, b) => timeToMinutes(a) - timeToMinutes(b),
+    );
+    const dayBookings = active.filter((b) => b.dateKey === dateKey);
+    const open = filterOpenStarts({
+      durationMinutes,
+      taken: dayBookings.map((b) => ({
+        time: b.time,
+        durationMinutes: resolveDuration(b),
+      })),
+      closedTimes: closedTimesForDay(closed, dateKey, category),
+      starts,
+    }).filter((time) => !isSlotInPast(dateKey, time));
+    days.push({ dateKey, day, openCount: open.length });
+  }
+
+  return days;
+}
+
 export type PublicSlotStatus = "open" | "booked" | "closed";
 
 export async function getPublicSlotsForDate(
@@ -467,29 +513,29 @@ export async function getPublicSlotsForDate(
   durationMinutes: number,
   category?: ServiceCategory | null,
 ): Promise<{ time: string; status: PublicSlotStatus }[]> {
-  const [active, closed, open, starts] = await Promise.all([
+  const [active, closed, starts] = await Promise.all([
     listBookings(false),
     listClosedSlots(),
-    getOpenTimesForDate(dateKey, durationMinutes, category),
     getStartsForDate(dateKey),
   ]);
-  const openSet = new Set(open);
   const dayBookings = active.filter((b) => b.dateKey === dateKey);
   const closedSet = new Set(closedTimesForDay(closed, dateKey, category));
+  const open = filterOpenStarts({
+    durationMinutes,
+    taken: dayBookings.map((b) => ({
+      time: b.time,
+      durationMinutes: resolveDuration(b),
+    })),
+    closedTimes: [...closedSet],
+    starts,
+  }).filter((time) => !isSlotInPast(dateKey, time));
+  const openSet = new Set(open);
 
   return starts.map((time) => {
-    // Passerade tider = grå (closed). Stängda + bokade = röda (booked).
     if (isSlotInPast(dateKey, time)) return { time, status: "closed" as const };
     if (openSet.has(time)) return { time, status: "open" as const };
-    if (closedSet.has(time)) return { time, status: "booked" as const };
-    const occupied = dayBookings.some((b) => {
-      const start = timeToMinutes(b.time);
-      const end = blockEndMinutes(b.time, resolveDuration(b));
-      const t = timeToMinutes(time);
-      return t >= start && t < end;
-    });
-    if (occupied) return { time, status: "booked" as const };
-    return { time, status: "closed" as const };
+    // Stängd / bokad / krockar med annan tid → röd (inte grå)
+    return { time, status: "booked" as const };
   });
 }
 

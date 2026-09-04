@@ -422,9 +422,9 @@ function BookingWizard() {
             ))}
           </div>
 
-          {!daysLoaded && (
-            <p className="mt-3 text-sm text-ink-muted">Hämtar lediga dagar…</p>
-          )}
+          {!daysLoaded ? (
+            <p className="mt-3 text-sm text-ink-muted">Laddar kalender…</p>
+          ) : null}
 
           <div className="grid grid-cols-7 gap-1">
             {calendarCells.map((day, i) => {

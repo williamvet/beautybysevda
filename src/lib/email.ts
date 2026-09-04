@@ -3,7 +3,7 @@ import {
   buildBookingIcs,
   type CalendarBooking,
 } from "@/lib/calendar";
-import { setRequestSiteUrl, manageUrl } from "@/lib/sms";
+import { setRequestSiteUrl, manageUrl, getSiteUrl } from "@/lib/sms";
 import { siteConfig } from "@/lib/site";
 
 type MailResult = { ok: boolean; skipped?: boolean; error?: string };
@@ -106,20 +106,20 @@ async function sendViaBrevo(input: {
     to: recipients,
     subject: input.subject,
     htmlContent: input.html,
-    textContent:
-      input.text ||
-      input.html
-        .replace(/<style[\s\S]*?<\/style>/gi, "")
-        .replace(/<[^>]+>/g, " ")
-        .replace(/\s+/g, " ")
-        .trim(),
-    // Försök stänga av Brevo-spårning (annars blir länkar långa blå sendibt2-URL:er).
+    textContent: input.text,
+    // Brevo open/click-tracking skapar synliga sendibt-URL:er i Hotmail/iPhone.
     headers: {
       "X-Mailin-Track": "0",
       "X-Mailin-Track-Clicks": "0",
       "X-Mailin-Track-Opens": "0",
+      "X-MailinCustom": "tracking=false",
     },
   };
+
+  // Undvik tom textContent (Brevo kan då generera skräp från HTML).
+  if (!body.textContent) {
+    body.textContent = "Beauty by Sevda — se HTML-versionen av mejlet.";
+  }
 
   if (input.ics) {
     body.attachment = [
@@ -283,35 +283,37 @@ function formatSvDate(dateKey: string) {
 }
 
 /**
- * Avbokning — EN kort blå textlänk (inte knappar + länkar).
- * Synlig text = "AVBOKA DIN TID". Brevo får inte två href att spåra.
+ * Kort synlig länk (som beautybysevda.se/c/…) — inte Brevo:s meter-långa tracking-text.
  */
-function cancelButton(url: string) {
-  const safe = esc(url);
+function cancelButton(fullManageUrl: string, shortPath: string) {
+  const href = esc(fullManageUrl);
+  const label = esc(`beautybysevda.se${shortPath}`);
   return `
-<p style="margin:28px 0 0;text-align:center;font-family:Helvetica,Arial,sans-serif;">
-  <a href="${safe}"
-     style="color:#2563eb;font-size:16px;font-weight:bold;text-decoration:underline;">
-    AVBOKA DIN TID
-  </a>
+<p style="margin:28px 0 0;text-align:center;font-family:Helvetica,Arial,sans-serif;font-size:15px;line-height:1.5;color:#333;">
+  Avboka din tid:<br/>
+  <a href="${href}" style="color:#2563eb;font-weight:bold;text-decoration:underline;">${label}</a>
 </p>`;
 }
 
-/** Instagram som vanlig text — INGEN href (Brevo gör annars lång tracking-URL). */
+/** Instagram som kort synlig länk (ingen dubbel footer). */
 function instagramArrivalBlock() {
   const handle = siteConfig.instagramHandle;
+  const ig = siteConfig.instagramUrl;
   return `
       <div style="margin:18px 0 0;padding:16px;border:1px solid #e8e2d8;background:#faf8f5;">
         <p style="margin:0 0 8px;font-size:11px;letter-spacing:0.2em;text-transform:uppercase;color:#a0894a;">När du är utanför</p>
         <p style="margin:0;font-size:14px;line-height:1.65;color:#333;">
-          Hör av dig på Instagram <strong>@${esc(handle)}</strong> ca&nbsp;5&nbsp;minuter innan — så kommer jag och öppnar.
+          Hör av dig ca&nbsp;5&nbsp;minuter innan — så kommer jag och öppnar.
+        </p>
+        <p style="margin:12px 0 0;font-size:15px;">
+          <a href="${esc(ig)}" style="color:#2563eb;font-weight:bold;text-decoration:underline;">instagram.com/${esc(handle)}</a>
         </p>
       </div>`;
 }
 
 function emailShell(inner: string) {
   return `<!DOCTYPE html>
-<html><head><meta charset="utf-8"></head>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"></head>
 <body style="margin:0;padding:0;background:#f7f5f2;">
   <div style="max-width:520px;margin:0 auto;padding:28px 18px;font-family:Helvetica,Arial,sans-serif;">
     <p style="margin:0 0 20px;text-align:center;font-size:11px;letter-spacing:0.28em;text-transform:uppercase;color:#a0894a;">
@@ -361,11 +363,14 @@ export async function sendCustomerBookingEmail(b: CalendarBooking) {
   const first = b.name.split(" ")[0] || b.name;
   const when = formatSvDate(b.dateKey);
   const cancel = manageUrl(b.manageToken);
+  const shortCode = b.manageToken.slice(0, 10);
+  const shortPath = `/c/${shortCode}`;
+  const shortUrl = `${getSiteUrl()}${shortPath}`;
   const address = process.env.SEVDA_VISIT_ADDRESS?.trim();
 
   const addressText = address
-    ? `\nAdress: ${address}\nNar du ar utanfor: skriv pa Instagram @${siteConfig.instagramHandle} ca 5 minuter innan sa kommer jag och oppnar.\n`
-    : "\nAdress skickas separat om den saknas har.\n";
+    ? `\nAdress: ${address}\nNar du ar utanfor: skriv pa Instagram @${siteConfig.instagramHandle} ca 5 minuter innan.\n`
+    : "\n";
 
   const addressHtml = address
     ? `
@@ -376,7 +381,7 @@ export async function sendCustomerBookingEmail(b: CalendarBooking) {
       ${instagramArrivalBlock()}`
     : instagramArrivalBlock();
 
-  // Ren text utan avboknings-URL (Brevo/Hotmail gör annars långa blå länkar).
+  // Ren text — korta länkar, ingen tracking-text.
   const text = `Tack for att du bokar hos mig, ${first}!
 
 Din tid: ${b.dateKey} kl ${b.time}
@@ -385,7 +390,8 @@ ${b.price} kr · ca ${b.durationMinutes} min
 ${addressText}
 Betalning: kontant pa plats.
 
-Vill du avboka? Tryck pa den bla texten "AVBOKA DIN TID" i mejlet.
+Avboka: ${shortUrl}
+Instagram: instagram.com/${siteConfig.instagramHandle}
 
 Vi ses snart!
 — Sevda`;
@@ -415,7 +421,7 @@ Vi ses snart!
         Betalning: kontant på plats.<br/>
         Avboka senast 24&nbsp;timmar innan.
       </p>
-      ${cancelButton(cancel)}
+      ${cancelButton(cancel, shortPath)}
       <p style="margin:22px 0 0;font-size:13px;color:#888;">
         Kalenderfil finns bifogad i mejlet.
       </p>

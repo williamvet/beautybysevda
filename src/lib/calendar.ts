@@ -1,5 +1,3 @@
-import { siteConfig } from "@/lib/site";
-
 export type CalendarBooking = {
   id: string;
   manageToken: string;

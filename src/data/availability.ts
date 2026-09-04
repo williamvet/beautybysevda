@@ -57,6 +57,18 @@ export function allStartSlots(): string[] {
 
 export const DAY_SLOTS = allStartSlots();
 
+/**
+ * Lås bokning till schema-rutan (10:00 / 12:15 / 14:30 / 16:45).
+ * Ex: 14:00 → 14:30 så 12:15 förblir ledig (2 tim + 15 min synkar till nästa start).
+ */
+export function snapToDaySlot(time: string): string {
+  const m = timeToMinutes(time);
+  for (const s of DAY_SLOTS) {
+    if (timeToMinutes(s) >= m) return s;
+  }
+  return DAY_SLOTS[DAY_SLOTS.length - 1]!;
+}
+
 export function blockEndMinutes(startTime: string, durationMinutes: number) {
   return timeToMinutes(startTime) + durationMinutes + BUFFER_MINUTES;
 }

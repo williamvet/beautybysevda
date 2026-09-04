@@ -9,6 +9,7 @@ import {
   isSlotInPast,
   isValidStartTime,
   rangesOverlap,
+  snapToDaySlot,
   timeToMinutes,
   toDateKey,
 } from "@/data/availability";
@@ -100,6 +101,14 @@ function resolveDuration(b: Booking): number {
   return getService(b.serviceId)?.durationMinutes ?? 90;
 }
 
+/** Bokningar mappas till schema-starten så 10/12:15/14:30/16:45 synkar (2h+15). */
+function takenOnSchedule(dayBookings: Booking[]) {
+  return dayBookings.map((b) => ({
+    time: snapToDaySlot(b.time),
+    durationMinutes: resolveDuration(b),
+  }));
+}
+
 export async function listBookings(includeCancelled = false): Promise<Booking[]> {
   const sb = requireDb();
   let q = sb.from("bbs_bookings").select("*").order("created_at", { ascending: false });
@@ -127,13 +136,12 @@ export async function addBooking(
     throw new Error("Tiden är stängd.");
   }
 
-  const starts = await getStartsForDate(booking.dateKey);
+  const starts = await getStartsForDate(booking.dateKey, {
+    includeExtras: true,
+  });
   const open = filterOpenStarts({
     durationMinutes: booking.durationMinutes,
-    taken: active.map((b) => ({
-      time: b.time,
-      durationMinutes: resolveDuration(b),
-    })),
+    taken: takenOnSchedule(active),
     closedTimes: closedTimesForDay(closed, booking.dateKey, booking.category),
     starts,
   }).filter((t) => !isSlotInPast(booking.dateKey, t));
@@ -462,10 +470,7 @@ export async function getOpenTimesForDate(
 
   return filterOpenStarts({
     durationMinutes,
-    taken: dayBookings.map((b) => ({
-      time: b.time,
-      durationMinutes: resolveDuration(b),
-    })),
+    taken: takenOnSchedule(dayBookings),
     closedTimes: closedTimesForDay(closed, dateKey, category),
     starts,
   }).filter((time) => !isSlotInPast(dateKey, time));
@@ -494,10 +499,7 @@ export async function getMonthOpenCounts(
     const dayBookings = active.filter((b) => b.dateKey === dateKey);
     const open = filterOpenStarts({
       durationMinutes,
-      taken: dayBookings.map((b) => ({
-        time: b.time,
-        durationMinutes: resolveDuration(b),
-      })),
+      taken: takenOnSchedule(dayBookings),
       closedTimes: closedTimesForDay(closed, dateKey, category),
       starts,
     }).filter((time) => !isSlotInPast(dateKey, time));
@@ -523,10 +525,7 @@ export async function getPublicSlotsForDate(
   const closedSet = new Set(closedTimesForDay(closed, dateKey, category));
   const open = filterOpenStarts({
     durationMinutes,
-    taken: dayBookings.map((b) => ({
-      time: b.time,
-      durationMinutes: resolveDuration(b),
-    })),
+    taken: takenOnSchedule(dayBookings),
     closedTimes: [...closedSet],
     starts,
   }).filter((time) => !isSlotInPast(dateKey, time));
@@ -535,7 +534,6 @@ export async function getPublicSlotsForDate(
   return starts.map((time) => {
     if (isSlotInPast(dateKey, time)) return { time, status: "closed" as const };
     if (openSet.has(time)) return { time, status: "open" as const };
-    // Stängd / bokad / krockar med annan tid → röd (inte grå)
     return { time, status: "booked" as const };
   });
 }

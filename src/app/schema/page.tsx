@@ -227,7 +227,7 @@ export default function SevdaPage() {
       `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
     const from = keyOf(today);
     const toFransar = new Date(today);
-    toFransar.setDate(toFransar.getDate() + 14);
+    toFransar.setDate(toFransar.getDate() + 15); // t.o.m. ~19 sep från 4 sep
     const toFransarKey = keyOf(toFransar);
 
     if (

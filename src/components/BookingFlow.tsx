@@ -52,6 +52,7 @@ function BookingWizard() {
   const [dayOpenCounts, setDayOpenCounts] = useState<Record<string, number>>(
     {},
   );
+  const [daysLoaded, setDaysLoaded] = useState(false);
   const [loadingTimes, setLoadingTimes] = useState(false);
 
   const filteredServices = useMemo(
@@ -73,6 +74,8 @@ function BookingWizard() {
 
   useEffect(() => {
     if (step !== 4 || !serviceId) return;
+    setDaysLoaded(false);
+    setDayOpenCounts({});
     fetch(`/api/availability?serviceId=${serviceId}`)
       .then((r) => r.json())
       .then((data: { days: { dateKey: string; openCount: number }[] }) => {
@@ -80,7 +83,8 @@ function BookingWizard() {
         for (const d of data.days) map[d.dateKey] = d.openCount;
         setDayOpenCounts(map);
       })
-      .catch(() => setDayOpenCounts({}));
+      .catch(() => setDayOpenCounts({}))
+      .finally(() => setDaysLoaded(true));
   }, [step, serviceId]);
 
   useEffect(() => {
@@ -418,6 +422,10 @@ function BookingWizard() {
             ))}
           </div>
 
+          {!daysLoaded && (
+            <p className="mt-3 text-sm text-ink-muted">Hämtar lediga dagar…</p>
+          )}
+
           <div className="grid grid-cols-7 gap-1">
             {calendarCells.map((day, i) => {
               if (day === null) {
@@ -427,35 +435,39 @@ function BookingWizard() {
               const key = toDateKey(BOOKING_YEAR, BOOKING_MONTH, day);
               const past = isPastDateKey(key);
               const openCount = dayOpenCounts[key];
+              // Innan API svarat: visa grå (inte klickbar) — undvik “lediga” blink.
               const available =
-                !past && (openCount === undefined || openCount > 0);
+                daysLoaded &&
+                !past &&
+                typeof openCount === "number" &&
+                openCount > 0;
               const selected = dateKey === key;
 
               return (
                 <button
                   key={key}
                   type="button"
-                  disabled={past || openCount === 0}
+                  disabled={past || !available}
                   onClick={() => {
-                    if (past) return;
+                    if (past || !available) return;
                     setDateKey(key);
                     setTime(null);
                   }}
                   className={`aspect-square text-sm transition ${
-                    past
-                      ? "cursor-not-allowed bg-neutral-100 text-ink-muted/30"
+                    past || !available
+                      ? "cursor-not-allowed bg-neutral-100 text-ink-muted/35"
                       : selected
                         ? "bg-ink text-white"
-                        : available
-                          ? "bg-bg-soft text-ink hover:bg-gold/25"
-                          : "cursor-not-allowed bg-neutral-100 text-ink-muted/40"
+                        : "bg-bg-soft text-ink hover:bg-gold/25"
                   }`}
                   title={
                     past
                       ? "Passerad dag"
-                      : available
-                        ? "Välj dag"
-                        : "Inga lediga tider"
+                      : !daysLoaded
+                        ? "Laddar…"
+                        : available
+                          ? "Välj dag"
+                          : "Inga lediga tider"
                   }
                 >
                   {day}

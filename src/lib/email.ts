@@ -283,52 +283,28 @@ function formatSvDate(dateKey: string) {
 }
 
 /**
- * En enda avbokningsknapp (inte två länkar — Brevo spårar varje länk separat
- * och Hotmail visar då långa blå URL:er).
+ * Avbokning — EN kort blå textlänk (inte knappar + länkar).
+ * Synlig text = "AVBOKA DIN TID". Brevo får inte två href att spåra.
  */
 function cancelButton(url: string) {
   const safe = esc(url);
   return `
-<table role="presentation" cellspacing="0" cellpadding="0" border="0" align="center" style="margin:28px auto 0;">
-  <tr>
-    <td align="center" bgcolor="#111111" style="border-radius:999px;background-color:#111111;">
-      <!--[if mso]>
-      <v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" href="${safe}" style="height:48px;v-text-anchor:middle;width:220px;" arcsize="50%" fillcolor="#111111" stroke="f">
-        <center style="color:#ffffff;font-family:Helvetica,Arial,sans-serif;font-size:13px;font-weight:bold;">Avboka din tid</center>
-      </v:roundrect>
-      <![endif]-->
-      <!--[if !mso]><!-- -->
-      <a href="${safe}"
-         target="_blank"
-         rel="noopener noreferrer"
-         style="display:inline-block;padding:14px 32px;font-family:Helvetica,Arial,sans-serif;font-size:13px;letter-spacing:0.08em;text-decoration:none;color:#ffffff;background-color:#111111;border-radius:999px;font-weight:bold;">
-        Avboka din tid
-      </a>
-      <!--<![endif]-->
-    </td>
-  </tr>
-</table>
-<p style="margin:12px 0 0;text-align:center;font-family:Helvetica,Arial,sans-serif;font-size:12px;color:#888;">
-  Knappen tar dig till avbokningssidan — ingen lång länk behövs.
+<p style="margin:28px 0 0;text-align:center;font-family:Helvetica,Arial,sans-serif;">
+  <a href="${safe}"
+     style="color:#2563eb;font-size:16px;font-weight:bold;text-decoration:underline;">
+    AVBOKA DIN TID
+  </a>
 </p>`;
 }
 
+/** Instagram som vanlig text — INGEN href (Brevo gör annars lång tracking-URL). */
 function instagramArrivalBlock() {
-  const ig = siteConfig.instagramUrl;
   const handle = siteConfig.instagramHandle;
   return `
       <div style="margin:18px 0 0;padding:16px;border:1px solid #e8e2d8;background:#faf8f5;">
         <p style="margin:0 0 8px;font-size:11px;letter-spacing:0.2em;text-transform:uppercase;color:#a0894a;">När du är utanför</p>
-        <p style="margin:0;font-size:14px;line-height:1.6;color:#333;">
-          Hör av dig på Instagram ca&nbsp;5&nbsp;minuter innan — så kommer jag och öppnar.
-        </p>
-        <p style="margin:14px 0 0;">
-          <a href="${esc(ig)}"
-             target="_blank"
-             rel="noopener noreferrer"
-             style="display:inline-block;padding:12px 22px;font-family:Helvetica,Arial,sans-serif;font-size:13px;font-weight:bold;text-decoration:none;color:#111111;border:1px solid #111111;border-radius:999px;">
-            Skriv på Instagram @${esc(handle)}
-          </a>
+        <p style="margin:0;font-size:14px;line-height:1.65;color:#333;">
+          Hör av dig på Instagram <strong>@${esc(handle)}</strong> ca&nbsp;5&nbsp;minuter innan — så kommer jag och öppnar.
         </p>
       </div>`;
 }
@@ -344,10 +320,6 @@ function emailShell(inner: string) {
     <div style="background:#ffffff;border:1px solid #e8e2d8;padding:28px 24px;">
       ${inner}
     </div>
-    <p style="margin:18px 0 0;text-align:center;font-size:12px;color:#888;line-height:1.5;">
-      Frågor?
-      <a href="${esc(siteConfig.instagramUrl)}" style="color:#a0894a;text-decoration:underline;">Instagram @${esc(siteConfig.instagramHandle)}</a>
-    </p>
   </div>
 </body></html>`;
 }
@@ -413,8 +385,7 @@ ${b.price} kr · ca ${b.durationMinutes} min
 ${addressText}
 Betalning: kontant pa plats.
 
-Vill du avboka? Anvand knappen "Avboka din tid" i mejlet (oppnas i webblasaren).
-Eller skriv till @${siteConfig.instagramHandle} pa Instagram.
+Vill du avboka? Tryck pa den bla texten "AVBOKA DIN TID" i mejlet.
 
 Vi ses snart!
 — Sevda`;

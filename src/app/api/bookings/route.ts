@@ -9,6 +9,7 @@ import {
 } from "@/lib/bookings";
 import {
   bindEmailSiteUrl,
+  isCleanCustomerMailConfigured,
   isEmailConfigured,
   sendCustomerBookingEmail,
   sendSevdaBookingEmail,
@@ -115,6 +116,9 @@ export async function POST(req: NextRequest) {
     if (!mailOn) {
       hint =
         "Bokningen är sparad. Mejl är inte inkopplat ännu.";
+    } else if (!isCleanCustomerMailConfigured()) {
+      hint =
+        "Bokningen är sparad. Sevda får mejl. Kundbekräftelse väntar på SMTP (Hotmail) — så slipper ni Brevo-spårningslänken.";
     } else if (!customerMail.ok && sevdaMail.ok) {
       hint =
         "Sevda fick mejl. Din bekräftelse gick inte fram — använd avbokningslänken här på sidan.";

@@ -231,12 +231,35 @@ async function sendViaResend(input: MailInput): Promise<MailResult> {
   return { ok: true };
 }
 
-/** Brevo först — samma system som tidigare. */
-async function sendEmail(input: MailInput): Promise<MailResult> {
+/** Brevo — bara till Sevda (admin). Kundmejl får ALDRIG gå här (tr/op-pixel). */
+async function sendInternalEmail(input: MailInput): Promise<MailResult> {
   if (isBrevoConfigured()) return sendViaBrevo(input);
   if (isSmtpConfigured()) return sendViaSmtp(input);
   if (isResendConfigured()) return sendViaResend(input);
   return { ok: true, skipped: true };
+}
+
+/**
+ * Kundmejl — ALDRIG Brevo.
+ * Brevo injicerar alltid open-tracking (sendibt…/tr/op/…) som syns som blå död länk
+ * högst upp i Outlook. Det går inte att stänga av på free-kontot.
+ */
+async function sendCustomerFacingEmail(input: MailInput): Promise<MailResult> {
+  if (isSmtpConfigured()) return sendViaSmtp(input);
+  if (isResendConfigured()) return sendViaResend(input);
+
+  console.error(
+    "Kundmejl: sätt SMTP_USER+SMTP_PASS (Hotmail app-lösenord) eller RESEND_API_KEY. Brevo används inte — skapar blå tr/op-länk.",
+  );
+  return {
+    ok: false,
+    error:
+      "Kundmejl kräver SMTP/Resend. Brevo lägger in blå tracking-länk högst upp.",
+  };
+}
+
+export function isCleanCustomerMailConfigured() {
+  return isSmtpConfigured() || isResendConfigured();
 }
 
 function esc(text: string) {
@@ -256,13 +279,15 @@ function tipLine(category?: string) {
 function formatSvDate(dateKey: string) {
   const [y, m, d] = dateKey.split("-").map(Number);
   const dt = new Date(y, m - 1, d);
+  // Nollbredds-mellanrum så Outlook inte gör datumet till blå auto-länk
   return dt
     .toLocaleDateString("sv-SE", {
       weekday: "long",
       day: "numeric",
       month: "long",
     })
-    .replace(/ /g, "&nbsp;");
+    .split("")
+    .join("\u200B");
 }
 
 /** Enda länken i kundmejlet — leder till /c/… → /hantera/… */
@@ -302,7 +327,7 @@ export async function sendSevdaBookingEmail(b: CalendarBooking) {
   const ics = buildBookingIcs(b);
   const when = formatSvDate(b.dateKey);
 
-  return sendEmail({
+  return sendInternalEmail({
     to,
     subject: `Ny bokning ${b.dateKey} kl ${b.time} — ${b.name}`,
     ics,
@@ -326,15 +351,13 @@ export async function sendSevdaBookingEmail(b: CalendarBooking) {
 }
 
 /**
- * Tack till kund via Brevo.
- * Enda <a href> = Avboka din tid → /hantera/full-token (fungerar; /c/ kortlänk hade 500).
- * Instagram/adress = bara text (inga länkar).
+ * Tack till kund — SMTP/Resend (aldrig Brevo).
+ * Enda <a href> = Avboka din tid.
  */
 export async function sendCustomerBookingEmail(b: CalendarBooking) {
   const ics = buildBookingIcs(b);
   const first = b.name.split(" ")[0] || b.name;
   const when = formatSvDate(b.dateKey);
-  // Full token — /hantera/… fungerar. Undvik kort /c/ tills den är stabil.
   const cancelUrl = `https://beautybysevda.se/hantera/${b.manageToken}`;
   const address = process.env.SEVDA_VISIT_ADDRESS?.trim();
   const handle = siteConfig.instagramHandle;
@@ -393,7 +416,7 @@ Vi ses snart!
         </p>
       </div>`;
 
-  return sendEmail({
+  return sendCustomerFacingEmail({
     to: b.email,
     subject: `Tack för din bokning — Beauty by Sevda`,
     ics,
@@ -440,7 +463,7 @@ export async function sendCancelEmails(b: {
   const handle = siteConfig.instagramHandle;
 
   const customer = b.email
-    ? sendEmail({
+    ? sendCustomerFacingEmail({
         to: b.email,
         subject: `Din tid är avbokad — Beauty by Sevda`,
         text: `Hej ${first}.
@@ -463,7 +486,7 @@ Vill du boka igen? Hör av dig på Instagram @${handle}.
     : Promise.resolve({ ok: true, skipped: true } as MailResult);
 
   const toSevda = sevda
-    ? sendEmail({
+    ? sendInternalEmail({
         to: sevda,
         subject: `Avbokad ${b.dateKey} kl ${b.time} — ${b.name}`,
         text: `Avbokad: ${b.dateKey} kl ${b.time}\n${b.name} · ${b.serviceName} · ${b.email}`,

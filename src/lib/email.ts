@@ -320,15 +320,15 @@ export async function sendSevdaBookingEmail(b: CalendarBooking) {
 
 /**
  * Tack till kund via Brevo.
- * Enda <a href> = Avboka din tid → https://beautybysevda.se/c/…
+ * Enda <a href> = Avboka din tid → /hantera/full-token (fungerar; /c/ kortlänk hade 500).
  * Instagram/adress = bara text (inga länkar).
  */
 export async function sendCustomerBookingEmail(b: CalendarBooking) {
   const ics = buildBookingIcs(b);
   const first = b.name.split(" ")[0] || b.name;
   const when = formatSvDate(b.dateKey);
-  const shortCode = b.manageToken.slice(0, 10);
-  const cancelUrl = `https://beautybysevda.se/c/${shortCode}`;
+  // Full token — /hantera/… fungerar. Undvik kort /c/ tills den är stabil.
+  const cancelUrl = `https://beautybysevda.se/hantera/${b.manageToken}`;
   const address = process.env.SEVDA_VISIT_ADDRESS?.trim();
   const handle = siteConfig.instagramHandle;
 

@@ -212,9 +212,40 @@ export async function getBookingByManageToken(
   if (error) throw new Error(error.message);
   if (data) return rowToBooking(data as BookingRow);
 
+  // Bara fråga på id om det ser ut som UUID — annars kraschar PostgREST (500).
+  const looksLikeUuid =
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+      token,
+    );
+  if (!looksLikeUuid) return null;
+
   const byId = await sb.from("bbs_bookings").select("*").eq("id", token).maybeSingle();
   if (byId.error) throw new Error(byId.error.message);
   return byId.data ? rowToBooking(byId.data as BookingRow) : null;
+}
+
+/** Hitta bokning via kort prefix (t.ex. mejl-länk /c/xxxxxxxxxx). */
+export async function getBookingByManageTokenPrefix(
+  prefix: string,
+): Promise<Booking | null> {
+  const clean = (prefix || "").trim();
+  if (clean.length < 6) return null;
+
+  const exact = await getBookingByManageToken(clean);
+  if (exact) return exact;
+
+  const sb = requireDb();
+  const { data, error } = await sb
+    .from("bbs_bookings")
+    .select("*")
+    .like("manage_token", `${clean}%`)
+    .limit(2);
+
+  if (error) throw new Error(error.message);
+  if (!data?.length) return null;
+  // Om två matchar samma prefix — ta den senaste aktiva, annars första
+  const active = data.find((r) => r.status === "active");
+  return rowToBooking((active || data[0]) as BookingRow);
 }
 
 export async function cancelBookingByToken(

@@ -92,8 +92,10 @@ async function sendViaBrevo(input: MailInput): Promise<MailResult> {
   if (!key) return { ok: true, skipped: true };
 
   const from = parseFrom();
+  // contactPixelTrackingConsent: false → ingen open-tracking-pixel (tr/op)
+  // som syns som blå död länk högst upp i Outlook/Hotmail.
   const recipients = (Array.isArray(input.to) ? input.to : [input.to]).map(
-    (email) => ({ email }),
+    (email) => ({ email, contactPixelTrackingConsent: false as const }),
   );
 
   const body: Record<string, unknown> = {
@@ -103,6 +105,11 @@ async function sendViaBrevo(input: MailInput): Promise<MailResult> {
     textContent:
       input.text ||
       "Beauty by Sevda — din bokning. Oppna mejlet som HTML om texten ser konstig ut.",
+    headers: {
+      "X-Mailin-Track": "0",
+      "X-Mailin-Track-Clicks": "0",
+      "X-Mailin-Track-Opens": "0",
+    },
   };
 
   if (input.html?.trim()) {

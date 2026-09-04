@@ -41,11 +41,6 @@ function isResendConfigured() {
   return Boolean(process.env.RESEND_API_KEY?.trim());
 }
 
-/** True om kundmejl kan skickas UTAN Brevo (ingen sendibt / open-pixel). */
-export function isCleanCustomerMailConfigured() {
-  return isSmtpConfigured() || isResendConfigured();
-}
-
 function parseFrom() {
   const explicit = process.env.EMAIL_FROM?.trim();
   if (explicit) {
@@ -229,31 +224,12 @@ async function sendViaResend(input: MailInput): Promise<MailResult> {
   return { ok: true };
 }
 
-/** Mejl till Sevda — Brevo OK (hon ser admin-mejlen). */
-async function sendInternalEmail(input: MailInput): Promise<MailResult> {
+/** Brevo först — samma system som tidigare. */
+async function sendEmail(input: MailInput): Promise<MailResult> {
   if (isBrevoConfigured()) return sendViaBrevo(input);
   if (isSmtpConfigured()) return sendViaSmtp(input);
   if (isResendConfigured()) return sendViaResend(input);
   return { ok: true, skipped: true };
-}
-
-/**
- * Kundmejl — ALDRIG via Brevo.
- * Brevo konverterar till HTML, lägger in open-tracking-pixel (blå död länk)
- * och skriver om URL:er till sendibt… Oavsett headers / plain text.
- */
-async function sendCustomerFacingEmail(input: MailInput): Promise<MailResult> {
-  if (isSmtpConfigured()) return sendViaSmtp(input);
-  if (isResendConfigured()) return sendViaResend(input);
-
-  console.error(
-    "Kundmejl: SMTP/Resend saknas. Brevo används INTE (skapar blå tracking-länkar). Sätt SMTP_USER+SMTP_PASS eller RESEND_API_KEY.",
-  );
-  return {
-    ok: false,
-    error:
-      "Kundmejl kräver SMTP eller Resend — Brevo sabbar länkarna med tracking.",
-  };
 }
 
 function esc(text: string) {
@@ -262,6 +238,12 @@ function esc(text: string) {
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
+}
+
+function tipLine(category?: string) {
+  return category === "fransar"
+    ? `<p style="margin:16px 0 0;color:#555;font-size:14px;line-height:1.5;">Tips: kom med rentvättade fransar, utan smink eller olja.</p>`
+    : "";
 }
 
 function formatSvDate(dateKey: string) {
@@ -274,6 +256,20 @@ function formatSvDate(dateKey: string) {
       month: "long",
     })
     .replace(/ /g, "&nbsp;");
+}
+
+/** Enda länken i kundmejlet — leder till /c/… → /hantera/… */
+function cancelLink(url: string) {
+  const safe = esc(url);
+  return `
+<div style="margin:28px 0 8px;text-align:center;">
+  <a href="${safe}"
+     target="_blank"
+     rel="noopener noreferrer"
+     style="font-family:Helvetica,Arial,sans-serif;font-size:16px;font-weight:bold;color:#a0894a;text-decoration:underline;">
+    Avboka din tid
+  </a>
+</div>`;
 }
 
 function emailShell(inner: string) {
@@ -291,12 +287,6 @@ function emailShell(inner: string) {
 </body></html>`;
 }
 
-function tipLine(category?: string) {
-  return category === "fransar"
-    ? `<p style="margin:16px 0 0;color:#555;font-size:14px;line-height:1.5;">Tips: kom med rentvättade fransar, utan smink eller olja.</p>`
-    : "";
-}
-
 /** Mejl till Sevda — ny bokning (vem/när) */
 export async function sendSevdaBookingEmail(b: CalendarBooking) {
   const to = process.env.SEVDA_EMAIL?.trim();
@@ -305,7 +295,7 @@ export async function sendSevdaBookingEmail(b: CalendarBooking) {
   const ics = buildBookingIcs(b);
   const when = formatSvDate(b.dateKey);
 
-  return sendInternalEmail({
+  return sendEmail({
     to,
     subject: `Ny bokning ${b.dateKey} kl ${b.time} — ${b.name}`,
     ics,
@@ -328,17 +318,19 @@ export async function sendSevdaBookingEmail(b: CalendarBooking) {
   });
 }
 
-/** Tack till kund — korta riktiga länkar, ingen Brevo-tracking. */
+/**
+ * Tack till kund via Brevo.
+ * Enda <a href> = Avboka din tid → https://beautybysevda.se/c/…
+ * Instagram/adress = bara text (inga länkar).
+ */
 export async function sendCustomerBookingEmail(b: CalendarBooking) {
   const ics = buildBookingIcs(b);
   const first = b.name.split(" ")[0] || b.name;
   const when = formatSvDate(b.dateKey);
   const shortCode = b.manageToken.slice(0, 10);
   const cancelUrl = `https://beautybysevda.se/c/${shortCode}`;
-  const cancelLabel = `beautybysevda.se/c/${shortCode}`;
   const address = process.env.SEVDA_VISIT_ADDRESS?.trim();
   const handle = siteConfig.instagramHandle;
-  const igUrl = siteConfig.instagramUrl;
 
   const tip =
     b.category === "fransar"
@@ -352,12 +344,10 @@ ${address}
 
 När du är utanför:
 Hör av dig ca 5 minuter innan på Instagram @${handle} — så kommer jag och öppnar.
-${igUrl}
 `
     : `
 När du är utanför:
 Hör av dig ca 5 minuter innan på Instagram @${handle} — så kommer jag och öppnar.
-${igUrl}
 `;
 
   const text = `Tack för att du bokar hos mig, ${first}!
@@ -369,7 +359,7 @@ ${addressText}${tip}
 Betalning: kontant på plats.
 Avboka senast 24 timmar innan.
 
-Avboka: ${cancelLabel}
+Vill du avboka? Öppna mejlet och tryck på "Avboka din tid".
 
 Kalenderfil finns bifogad i mejlet.
 
@@ -381,10 +371,27 @@ Vi ses snart!
       <div style="margin:18px 0 0;padding:16px 0;border-top:1px solid #e8e2d8;">
         <p style="margin:0 0 6px;font-size:11px;letter-spacing:0.2em;text-transform:uppercase;color:#a0894a;">Hitta hit</p>
         <p style="margin:0;font-size:15px;line-height:1.6;color:#1a1a1a;">${esc(address)}</p>
+      </div>
+      <div style="margin:18px 0 0;padding:16px;border:1px solid #e8e2d8;background:#faf8f5;">
+        <p style="margin:0 0 8px;font-size:11px;letter-spacing:0.2em;text-transform:uppercase;color:#a0894a;">När du är utanför</p>
+        <p style="margin:0;font-size:14px;line-height:1.65;color:#333;">
+          Hör av dig ca&nbsp;5&nbsp;minuter innan på Instagram @${esc(handle)} — så kommer jag och öppnar.
+        </p>
       </div>`
-    : "";
+    : `
+      <div style="margin:18px 0 0;padding:16px;border:1px solid #e8e2d8;background:#faf8f5;">
+        <p style="margin:0 0 8px;font-size:11px;letter-spacing:0.2em;text-transform:uppercase;color:#a0894a;">När du är utanför</p>
+        <p style="margin:0;font-size:14px;line-height:1.65;color:#333;">
+          Hör av dig ca&nbsp;5&nbsp;minuter innan på Instagram @${esc(handle)} — så kommer jag och öppnar.
+        </p>
+      </div>`;
 
-  const html = emailShell(`
+  return sendEmail({
+    to: b.email,
+    subject: `Tack för din bokning — Beauty by Sevda`,
+    ics,
+    text,
+    html: emailShell(`
       <h1 style="margin:0 0 12px;font-size:26px;font-weight:normal;color:#1a1a1a;">
         Tack för att du bokar hos mig, ${esc(first)}!
       </h1>
@@ -399,36 +406,17 @@ Vi ses snart!
         <p style="margin:6px 0 0;font-size:14px;color:#666;">${b.price}&nbsp;kr · ca ${b.durationMinutes} min</p>
       </div>
       ${addressHtml}
-      <div style="margin:18px 0 0;padding:16px;border:1px solid #e8e2d8;background:#faf8f5;">
-        <p style="margin:0 0 8px;font-size:11px;letter-spacing:0.2em;text-transform:uppercase;color:#a0894a;">När du är utanför</p>
-        <p style="margin:0;font-size:14px;line-height:1.65;color:#333;">
-          Hör av dig ca&nbsp;5&nbsp;minuter innan — så kommer jag och öppnar.
-        </p>
-        <p style="margin:12px 0 0;font-size:15px;">
-          <a href="${esc(igUrl)}" style="color:#1a1a1a;font-weight:bold;text-decoration:underline;">instagram.com/${esc(handle)}</a>
-        </p>
-      </div>
       ${tipLine(b.category)}
       <p style="margin:18px 0 0;font-size:14px;line-height:1.6;color:#555;">
         Betalning: kontant på plats.<br/>
         Avboka senast 24&nbsp;timmar innan.
       </p>
-      <p style="margin:28px 0 0;text-align:center;font-size:14px;line-height:1.6;color:#333;">
-        Avboka din tid:<br/>
-        <a href="${esc(cancelUrl)}" style="color:#1a1a1a;font-size:16px;font-weight:bold;text-decoration:underline;">${esc(cancelLabel)}</a>
-      </p>
+      ${cancelLink(cancelUrl)}
       <p style="margin:22px 0 0;font-size:13px;color:#888;">
         Kalenderfil finns bifogad i mejlet.
       </p>
       <p style="margin:26px 0 0;font-size:15px;color:#1a1a1a;">Vi ses snart!<br/><span style="color:#888;font-size:13px;">— Sevda</span></p>
-    `);
-
-  return sendCustomerFacingEmail({
-    to: b.email,
-    subject: `Tack för din bokning — Beauty by Sevda`,
-    ics,
-    text,
-    html,
+    `),
   });
 }
 
@@ -443,18 +431,16 @@ export async function sendCancelEmails(b: {
   const first = b.name.split(" ")[0] || b.name;
   const when = formatSvDate(b.dateKey);
   const handle = siteConfig.instagramHandle;
-  const igUrl = siteConfig.instagramUrl;
 
   const customer = b.email
-    ? sendCustomerFacingEmail({
+    ? sendEmail({
         to: b.email,
         subject: `Din tid är avbokad — Beauty by Sevda`,
         text: `Hej ${first}.
 
 Din tid ${b.dateKey} kl ${b.time} (${b.serviceName}) är avbokad.
 
-Vill du boka igen? Hör av dig på Instagram @${handle}
-${igUrl}
+Vill du boka igen? Hör av dig på Instagram @${handle}.
 
 — Beauty by Sevda`,
         html: emailShell(`
@@ -463,15 +449,14 @@ ${igUrl}
             Hej ${esc(first)}. Din tid ${when} kl&nbsp;${esc(b.time)} (${esc(b.serviceName)}) är avbokad.
           </p>
           <p style="margin:0;font-size:14px;line-height:1.6;color:#555;">
-            Vill du boka igen? Hör av dig på
-            <a href="${esc(igUrl)}" style="color:#1a1a1a;">Instagram @${esc(handle)}</a>.
+            Vill du boka igen? Hör av dig på Instagram @${esc(handle)}.
           </p>
         `),
       })
     : Promise.resolve({ ok: true, skipped: true } as MailResult);
 
   const toSevda = sevda
-    ? sendInternalEmail({
+    ? sendEmail({
         to: sevda,
         subject: `Avbokad ${b.dateKey} kl ${b.time} — ${b.name}`,
         text: `Avbokad: ${b.dateKey} kl ${b.time}\n${b.name} · ${b.serviceName} · ${b.email}`,

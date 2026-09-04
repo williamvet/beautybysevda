@@ -182,9 +182,9 @@ function BookingWizard() {
           Boka tid
         </h1>
         <p className="mt-3 max-w-lg text-ink-muted">
-          Hemmasalong i Örebro — exakt adress skickas i bekräftelsemejlet. Hör av
-          dig ca 5 min innan när du är utanför. Varje behandling tar ca 2 tim +
-          15 min paus.
+          Hemmasalong i Örebro — exakt adress skickas i bekräftelsemejlet. När du
+          är utanför: skriv på Instagram ca 5 min innan så öppnar jag. Varje
+          behandling tar ca 2 tim + 15 min paus.
         </p>
 
         {step < 5 && (
@@ -448,8 +448,15 @@ function BookingWizard() {
                         ? "bg-ink text-white"
                         : available
                           ? "bg-bg-soft text-ink hover:bg-gold/25"
-                          : "cursor-not-allowed text-ink-muted/30"
+                          : "cursor-not-allowed bg-neutral-100 text-ink-muted/40"
                   }`}
+                  title={
+                    past
+                      ? "Passerad dag"
+                      : available
+                        ? "Välj dag"
+                        : "Inga lediga tider"
+                  }
                 >
                   {day}
                 </button>

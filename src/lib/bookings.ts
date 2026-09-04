@@ -301,9 +301,9 @@ export async function setSlotClosed(
 }
 
 /**
- * Stäng standardtider from→to.
- * category = t.ex. "fransar" → bara den kategorin (naglar kan fortfarande bokas).
- * Tar bort gamla “stäng allt”-nycklar i intervallet så naglar öppnas igen.
+ * Stäng tider from→to (standard + eventuella extra tider per dag).
+ * category = t.ex. "fransar" → bara den kategorin.
+ * Tar bort gamla “stäng allt”-nycklar i intervallet så andra kategorin kan öppnas.
  */
 export async function closeDateRange(
   fromDateKey: string,
@@ -316,13 +316,18 @@ export async function closeDateRange(
   }
   if (fromDateKey > toDateKey) throw new Error("Från-datum måste vara före till-datum.");
 
+  const extras = await listExtraSlots();
   const fullKeys: string[] = [];
   const rows: { slot_key: string }[] = [];
   const start = new Date(`${fromDateKey}T12:00:00Z`);
   const end = new Date(`${toDateKey}T12:00:00Z`);
   for (let d = new Date(start); d <= end; d.setUTCDate(d.getUTCDate() + 1)) {
     const key = d.toISOString().slice(0, 10);
-    for (const time of DAY_SLOTS) {
+    const custom = extras
+      .filter((k) => k.startsWith(`${key}|`))
+      .map((k) => k.split("|")[1]);
+    const times = [...new Set([...DAY_SLOTS, ...custom])];
+    for (const time of times) {
       fullKeys.push(slotKey(key, time));
       rows.push({ slot_key: slotKey(key, time, category) });
     }
@@ -346,6 +351,35 @@ export async function closeDateRange(
     toDateKey,
     category: category ?? "all",
   };
+}
+
+/** Öppna en kategori i ett datumintervall (raderar category-nycklar). Rör inte bokningar. */
+export async function openDateRange(
+  fromDateKey: string,
+  toDateKey: string,
+  category: ServiceCategory,
+) {
+  const sb = requireDb();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(fromDateKey) || !/^\d{4}-\d{2}-\d{2}$/.test(toDateKey)) {
+    throw new Error("Ogiltigt datum.");
+  }
+  const keys: string[] = [];
+  const start = new Date(`${fromDateKey}T12:00:00Z`);
+  const end = new Date(`${toDateKey}T12:00:00Z`);
+  const extras = await listExtraSlots();
+  for (let d = new Date(start); d <= end; d.setUTCDate(d.getUTCDate() + 1)) {
+    const key = d.toISOString().slice(0, 10);
+    const custom = extras
+      .filter((k) => k.startsWith(`${key}|`))
+      .map((k) => k.split("|")[1]);
+    for (const time of [...new Set([...DAY_SLOTS, ...custom])]) {
+      keys.push(slotKey(key, time, category));
+      keys.push(slotKey(key, time)); // gamla “stäng allt”
+    }
+  }
+  const { error } = await sb.from("bbs_closed_slots").delete().in("slot_key", keys);
+  if (error) throw new Error(error.message);
+  return { opened: keys.length, fromDateKey, toDateKey, category };
 }
 
 export async function listExtraSlots(): Promise<ExtraStore> {

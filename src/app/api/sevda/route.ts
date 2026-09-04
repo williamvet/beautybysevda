@@ -13,6 +13,7 @@ import {
   listBookings,
   setSlotClosed,
   closeDateRange,
+  openDateRange,
   addExtraSlot,
   removeExtraSlot,
 } from "@/lib/bookings";
@@ -89,11 +90,48 @@ export async function POST(req: NextRequest) {
           ok: true,
           ...result,
           schedule,
-          message: `${result.closed} ${category}-tider stängda ${result.fromDateKey}–${result.toDateKey}. Naglar kan fortfarande bokas.`,
+          message: `${result.closed} ${category}-tider stängda ${result.fromDateKey}–${result.toDateKey}.`,
         });
       } catch (e) {
         return NextResponse.json(
           { error: e instanceof Error ? e.message : "Kunde inte stänga." },
+          { status: 400 },
+        );
+      }
+    }
+
+    if (body.action === "open-range") {
+      if (!body.fromDateKey || !body.toDateKey) {
+        return NextResponse.json(
+          { error: "Saknar från-/till-datum." },
+          { status: 400 },
+        );
+      }
+      const category =
+        body.category === "naglar" || body.category === "fransar"
+          ? body.category
+          : null;
+      if (!category) {
+        return NextResponse.json({ error: "Saknar kategori." }, { status: 400 });
+      }
+      try {
+        const result = await openDateRange(
+          body.fromDateKey,
+          body.toDateKey,
+          category,
+        );
+        const schedule = body.dateKey
+          ? await getDaySchedule(body.dateKey)
+          : await getDaySchedule(body.fromDateKey);
+        return NextResponse.json({
+          ok: true,
+          ...result,
+          schedule,
+          message: `${category} öppnade ${result.fromDateKey}–${result.toDateKey}. Bokningar orörda.`,
+        });
+      } catch (e) {
+        return NextResponse.json(
+          { error: e instanceof Error ? e.message : "Kunde inte öppna." },
           { status: 400 },
         );
       }

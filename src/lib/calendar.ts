@@ -56,7 +56,7 @@ export function buildBookingIcs(b: CalendarBooking) {
     `E-post: ${b.email}`,
     `Pris: ${b.price} kr`,
     b.note ? `Meddelande: ${b.note}` : "",
-    `Avboka: beautybysevda.se/c/${b.manageToken.slice(0, 10)}`,
+    `Avboka: beautybysevda.se/hantera/${b.manageToken}`,
   ]
     .filter(Boolean)
     .join("\\n");
@@ -95,7 +95,7 @@ export function googleCalendarUrl(b: CalendarBooking) {
       `Tel: ${b.phone}`,
       `E-post: ${b.email}`,
       `${b.price} kr`,
-      `Avboka: beautybysevda.se/c/${b.manageToken.slice(0, 10)}`,
+      `Avboka: beautybysevda.se/hantera/${b.manageToken}`,
     ].join("\n"),
     location: "Beauty by Sevda",
   });

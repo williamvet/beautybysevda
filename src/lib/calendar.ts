@@ -1,4 +1,4 @@
-import { manageUrl } from "@/lib/sms";
+import { siteConfig } from "@/lib/site";
 
 export type CalendarBooking = {
   id: string;
@@ -58,7 +58,7 @@ export function buildBookingIcs(b: CalendarBooking) {
     `E-post: ${b.email}`,
     `Pris: ${b.price} kr`,
     b.note ? `Meddelande: ${b.note}` : "",
-    `Avboka: ${manageUrl(b.manageToken)}`,
+    `Avboka: beautybysevda.se/c/${b.manageToken.slice(0, 10)}`,
   ]
     .filter(Boolean)
     .join("\\n");
@@ -97,7 +97,7 @@ export function googleCalendarUrl(b: CalendarBooking) {
       `Tel: ${b.phone}`,
       `E-post: ${b.email}`,
       `${b.price} kr`,
-      `Avboka: ${manageUrl(b.manageToken)}`,
+      `Avboka: beautybysevda.se/c/${b.manageToken.slice(0, 10)}`,
     ].join("\n"),
     location: "Beauty by Sevda",
   });

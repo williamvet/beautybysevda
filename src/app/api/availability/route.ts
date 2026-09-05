@@ -9,9 +9,7 @@ import {
 } from "@/data/availability";
 import {
   getMonthOpenCounts,
-  getOpenTimesForDate,
   getPublicSlotsForDate,
-  getStartsForDate,
 } from "@/lib/bookings";
 
 /** GET ?date=2026-09-05&serviceId=gele-nytt  |  GET ?serviceId=… (månad) */
@@ -25,16 +23,16 @@ export async function GET(req: NextRequest) {
     const category = (service?.category ?? null) as ServiceCategory | null;
 
     if (date) {
-      const [open, slots, allStarts] = await Promise.all([
-        getOpenTimesForDate(date, duration, category),
-        getPublicSlotsForDate(date, duration, category),
-        getStartsForDate(date, { includeExtras: false }),
-      ]);
+      // En DB-runda — öppna tider härleds från slots (snabbare klick i kalendern).
+      const slots = await getPublicSlotsForDate(date, duration, category);
+      const open = slots
+        .filter((s) => s.status === "open")
+        .map((s) => s.time);
       return NextResponse.json({
         dateKey: date,
         open,
         slots,
-        allStarts,
+        allStarts: DAY_SLOTS,
         durationMinutes: duration,
         bufferMinutes: BUFFER_MINUTES,
         serviceName: service?.name ?? null,

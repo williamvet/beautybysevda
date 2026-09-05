@@ -6,6 +6,7 @@ import { FormEvent, Suspense, useEffect, useMemo, useState } from "react";
 import {
   BOOKING_MONTH,
   BOOKING_YEAR,
+  DAY_SLOTS,
   daysInMonth,
   isPastDateKey,
   monthLabel,
@@ -92,7 +93,10 @@ function BookingWizard() {
       setSlots([]);
       return;
     }
+    let cancelled = false;
     setLoadingTimes(true);
+    // Visa tiderna direkt — status uppdateras när API svarar (känns omedelbart).
+    setSlots(DAY_SLOTS.map((time) => ({ time, status: "open" as const })));
     fetch(`/api/availability?date=${dateKey}&serviceId=${serviceId}`)
       .then((r) => r.json())
       .then(
@@ -100,6 +104,7 @@ function BookingWizard() {
           slots?: { time: string; status: "open" | "booked" | "closed" }[];
           open?: string[];
         }) => {
+          if (cancelled) return;
           if (data.slots?.length) {
             setSlots(data.slots);
           } else {
@@ -112,8 +117,15 @@ function BookingWizard() {
           }
         },
       )
-      .catch(() => setSlots([]))
-      .finally(() => setLoadingTimes(false));
+      .catch(() => {
+        if (!cancelled) setSlots([]);
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingTimes(false);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [dateKey, serviceId]);
 
   function pickCategory(cat: ServiceCategory) {
@@ -481,17 +493,15 @@ function BookingWizard() {
               <p className="font-display text-2xl capitalize text-ink">
                 {formatDateLabel(dateKey)}
               </p>
-              {loadingTimes ? (
-                <p className="mt-3 text-sm text-ink-muted">Hämtar tider…</p>
-              ) : slots.length === 0 ? (
+              {slots.length === 0 ? (
                 <p className="mt-3 text-sm text-ink-muted">
-                  Inga tider den dagen.
+                  {loadingTimes ? "Hämtar tider…" : "Inga tider den dagen."}
                 </p>
               ) : (
                 <div className="mt-4 flex flex-wrap gap-2">
                   {slots.map((slot) => {
-                    const isOpen = slot.status === "open";
-                    const isBooked = slot.status === "booked";
+                    const isOpen = slot.status === "open" && !loadingTimes;
+                    const isBooked = !loadingTimes && slot.status === "booked";
                     const selected = time === slot.time;
                     return (
                       <button
@@ -507,13 +517,15 @@ function BookingWizard() {
                               : isOpen
                                 ? "border border-line bg-white hover:border-gold"
                                 : "cursor-not-allowed bg-ink-muted/15 text-ink-muted/50"
-                        }`}
+                        } ${loadingTimes ? "opacity-70" : ""}`}
                         title={
-                          isBooked
-                            ? "Upptagen"
-                            : isOpen
-                              ? "Ledig"
-                              : "Stängd"
+                          loadingTimes
+                            ? "Uppdaterar…"
+                            : isBooked
+                              ? "Upptagen"
+                              : isOpen
+                                ? "Ledig"
+                                : "Stängd"
                         }
                       >
                         {slot.time}
@@ -522,6 +534,11 @@ function BookingWizard() {
                   })}
                 </div>
               )}
+              {loadingTimes && slots.length > 0 ? (
+                <p className="mt-2 text-xs text-ink-muted">
+                  Uppdaterar lediga tider…
+                </p>
+              ) : null}
 
               {submitError && (
                 <p className="mt-4 text-sm text-red-600">{submitError}</p>

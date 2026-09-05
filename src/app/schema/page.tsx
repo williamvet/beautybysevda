@@ -462,7 +462,7 @@ export default function SevdaPage() {
                       <p className="mt-1 text-sm text-ink-muted">{row.label}</p>
                       {row.booking ? (
                         <p className="mt-2 text-xs text-ink-muted">
-                          {row.booking.phone}
+                          Tel {row.booking.phone}
                           {row.booking.email ? ` · ${row.booking.email}` : ""}
                         </p>
                       ) : null}

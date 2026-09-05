@@ -118,6 +118,18 @@ export async function listBookings(includeCancelled = false): Promise<Booking[]>
   return (data as BookingRow[]).map(rowToBooking);
 }
 
+/** Aktiva bokningar för en dag — snabbare än hela listan. */
+async function listActiveBookingsOnDate(dateKey: string): Promise<Booking[]> {
+  const sb = requireDb();
+  const { data, error } = await sb
+    .from("bbs_bookings")
+    .select("*")
+    .eq("status", "active")
+    .eq("date_key", dateKey);
+  if (error) throw new Error(error.message);
+  return (data as BookingRow[]).map(rowToBooking);
+}
+
 export async function addBooking(
   booking: Omit<Booking, "id" | "createdAt" | "status" | "manageToken">,
 ): Promise<Booking> {
@@ -492,12 +504,11 @@ export async function getOpenTimesForDate(
 ): Promise<string[]> {
   if (isPastDateKey(dateKey)) return [];
 
-  const [active, closed, starts] = await Promise.all([
-    listBookings(false),
+  const [dayBookings, closed] = await Promise.all([
+    listActiveBookingsOnDate(dateKey),
     listClosedSlots(),
-    getStartsForDate(dateKey, { includeExtras: false }),
   ]);
-  const dayBookings = active.filter((b) => b.dateKey === dateKey);
+  const starts = [...DAY_SLOTS];
 
   return filterOpenStarts({
     durationMinutes,
@@ -547,12 +558,15 @@ export async function getPublicSlotsForDate(
   durationMinutes: number,
   category?: ServiceCategory | null,
 ): Promise<{ time: string; status: PublicSlotStatus }[]> {
-  const [active, closed, starts] = await Promise.all([
-    listBookings(false),
+  const starts = [...DAY_SLOTS];
+  if (isPastDateKey(dateKey)) {
+    return starts.map((time) => ({ time, status: "closed" as const }));
+  }
+
+  const [dayBookings, closed] = await Promise.all([
+    listActiveBookingsOnDate(dateKey),
     listClosedSlots(),
-    getStartsForDate(dateKey, { includeExtras: false }),
   ]);
-  const dayBookings = active.filter((b) => b.dateKey === dateKey);
   const closedSet = new Set(closedTimesForDay(closed, dateKey, category));
   const open = filterOpenStarts({
     durationMinutes,

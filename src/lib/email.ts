@@ -1,4 +1,3 @@
-import nodemailer from "nodemailer";
 import {
   buildBookingIcs,
   type CalendarBooking,
@@ -18,51 +17,15 @@ type MailInput = {
 };
 
 export function isEmailConfigured() {
-  return (
-    isBrevoConfigured() || isSmtpConfigured() || isResendConfigured()
-  );
-}
-
-function isBrevoConfigured() {
-  return Boolean(
-    process.env.BREVO_API_KEY?.trim() &&
-      process.env.EMAIL_FROM_ADDRESS?.trim() &&
-      process.env.SEVDA_EMAIL?.trim(),
-  );
-}
-
-function isSmtpConfigured() {
-  return Boolean(
-    process.env.SMTP_USER?.trim() && process.env.SMTP_PASS?.trim(),
-  );
+  return isResendConfigured();
 }
 
 function isResendConfigured() {
   return Boolean(process.env.RESEND_API_KEY?.trim());
 }
 
-function parseFrom() {
-  const explicit = process.env.EMAIL_FROM?.trim();
-  if (explicit) {
-    const m = explicit.match(/^(.*?)\s*<([^>]+)>$/);
-    if (m) return { name: m[1].trim() || "Beauty by Sevda", email: m[2].trim() };
-    if (explicit.includes("@")) return { name: "Beauty by Sevda", email: explicit };
-  }
-  const addr = process.env.EMAIL_FROM_ADDRESS?.trim();
-  if (addr) {
-    return {
-      name: process.env.EMAIL_FROM_NAME?.trim() || "Beauty by Sevda",
-      email: addr,
-    };
-  }
-  const user = process.env.SMTP_USER?.trim();
-  if (user) return { name: "Beauty by Sevda", email: user };
-  return { name: "Beauty by Sevda", email: "onboarding@resend.dev" };
-}
-
-function fromAddressString() {
-  const f = parseFrom();
-  return `${f.name} <${f.email}>`;
+export function isCleanCustomerMailConfigured() {
+  return isResendConfigured();
 }
 
 /** Sätt bas-URL från bokningsrequest (så länkar inte blir localhost). */
@@ -85,110 +48,6 @@ export function bindEmailSiteUrl(req: {
     (req.nextUrl?.protocol || "http:").replace(":", "") ||
     "http";
   setRequestSiteUrl(`${proto}://${host}`);
-}
-
-async function sendViaBrevo(input: MailInput): Promise<MailResult> {
-  const key = process.env.BREVO_API_KEY?.trim();
-  if (!key) return { ok: true, skipped: true };
-
-  const from = parseFrom();
-  // contactPixelTrackingConsent: false → ingen open-tracking-pixel (tr/op)
-  // som syns som blå död länk högst upp i Outlook/Hotmail.
-  const recipients = (Array.isArray(input.to) ? input.to : [input.to]).map(
-    (email) => ({ email, contactPixelTrackingConsent: false as const }),
-  );
-
-  const body: Record<string, unknown> = {
-    sender: { name: from.name, email: from.email },
-    to: recipients,
-    subject: input.subject,
-    textContent:
-      input.text ||
-      "Beauty by Sevda — din bokning. Oppna mejlet som HTML om texten ser konstig ut.",
-    headers: {
-      "X-Mailin-Track": "0",
-      "X-Mailin-Track-Clicks": "0",
-      "X-Mailin-Track-Opens": "0",
-    },
-  };
-
-  if (input.html?.trim()) {
-    body.htmlContent = input.html;
-  }
-
-  if (input.ics) {
-    body.attachment = [
-      {
-        name: input.icsFilename || "bokning.ics",
-        content: Buffer.from(input.ics, "utf8").toString("base64"),
-      },
-    ];
-  }
-
-  const res = await fetch("https://api.brevo.com/v3/smtp/email", {
-    method: "POST",
-    headers: {
-      "api-key": key,
-      "Content-Type": "application/json",
-      Accept: "application/json",
-    },
-    body: JSON.stringify(body),
-  });
-
-  if (!res.ok) {
-    const text = await res.text();
-    console.error("Brevo fel:", text);
-    return { ok: false, error: text };
-  }
-
-  return { ok: true };
-}
-
-async function sendViaSmtp(input: MailInput): Promise<MailResult> {
-  const user = process.env.SMTP_USER?.trim();
-  const pass = process.env.SMTP_PASS?.trim();
-  if (!user || !pass) return { ok: true, skipped: true };
-
-  const host =
-    process.env.SMTP_HOST?.trim() ||
-    (user.includes("gmail")
-      ? "smtp.gmail.com"
-      : "smtp-mail.outlook.com");
-  const port = Number(process.env.SMTP_PORT || "587");
-
-  const transporter = nodemailer.createTransport({
-    host,
-    port,
-    secure: port === 465,
-    auth: { user, pass },
-  });
-
-  const to = Array.isArray(input.to) ? input.to.join(", ") : input.to;
-  const attachments = input.ics
-    ? [
-        {
-          filename: input.icsFilename || "bokning.ics",
-          content: input.ics,
-          contentType: "text/calendar; charset=utf-8",
-        },
-      ]
-    : undefined;
-
-  try {
-    await transporter.sendMail({
-      from: fromAddressString(),
-      to,
-      subject: input.subject,
-      text: input.text,
-      html: input.html,
-      attachments,
-    });
-    return { ok: true };
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    console.error("SMTP fel:", message);
-    return { ok: false, error: message };
-  }
 }
 
 async function sendViaResend(input: MailInput): Promise<MailResult> {
@@ -236,27 +95,10 @@ async function sendViaResend(input: MailInput): Promise<MailResult> {
   return { ok: true };
 }
 
-/** Mejl till Sevda (admin) — Resend först (samma avsändare som kund). */
-async function sendInternalEmail(input: MailInput): Promise<MailResult> {
+/** Alla mejl (kund + Sevda) via Resend. */
+async function sendMail(input: MailInput): Promise<MailResult> {
   if (isResendConfigured()) return sendViaResend(input);
-  if (isSmtpConfigured()) return sendViaSmtp(input);
-  if (isBrevoConfigured()) return sendViaBrevo(input);
   return { ok: true, skipped: true };
-}
-
-/**
- * Kundmejl — SMTP/Resend först (ingen blå tr/op).
- * Annars Brevo så bokningsflödet funkar (Brevo kan visa spårningslänk högst upp).
- */
-async function sendCustomerFacingEmail(input: MailInput): Promise<MailResult> {
-  if (isSmtpConfigured()) return sendViaSmtp(input);
-  if (isResendConfigured()) return sendViaResend(input);
-  if (isBrevoConfigured()) return sendViaBrevo(input);
-  return { ok: true, skipped: true };
-}
-
-export function isCleanCustomerMailConfigured() {
-  return isSmtpConfigured() || isResendConfigured();
 }
 
 function esc(text: string) {
@@ -287,7 +129,7 @@ function formatSvDate(dateKey: string) {
     .join("\u200B");
 }
 
-/** Enda länken i kundmejlet — leder till /c/… → /hantera/… */
+/** Enda länken i kundmejlet — /hantera/… */
 function cancelLink(url: string) {
   const safe = esc(url);
   return `
@@ -324,7 +166,7 @@ export async function sendSevdaBookingEmail(b: CalendarBooking) {
   const ics = buildBookingIcs(b);
   const when = formatSvDate(b.dateKey);
 
-  return sendInternalEmail({
+  return sendMail({
     to,
     subject: `Ny bokning ${b.dateKey} kl ${b.time} — ${b.name}`,
     ics,
@@ -348,7 +190,7 @@ export async function sendSevdaBookingEmail(b: CalendarBooking) {
 }
 
 /**
- * Tack till kund — SMTP/Resend (aldrig Brevo).
+ * Tack till kund — Resend.
  * Enda <a href> = Avboka din tid.
  */
 export async function sendCustomerBookingEmail(b: CalendarBooking) {
@@ -413,7 +255,7 @@ Vi ses snart!
         </p>
       </div>`;
 
-  return sendCustomerFacingEmail({
+  return sendMail({
     to: b.email,
     subject: `Tack för din bokning — Beauty by Sevda`,
     ics,
@@ -460,7 +302,7 @@ export async function sendCancelEmails(b: {
   const handle = siteConfig.instagramHandle;
 
   const customer = b.email
-    ? sendCustomerFacingEmail({
+    ? sendMail({
         to: b.email,
         subject: `Din tid är avbokad — Beauty by Sevda`,
         text: `Hej ${first}.
@@ -483,7 +325,7 @@ Vill du boka igen? Hör av dig på Instagram @${handle}.
     : Promise.resolve({ ok: true, skipped: true } as MailResult);
 
   const toSevda = sevda
-    ? sendInternalEmail({
+    ? sendMail({
         to: sevda,
         subject: `Avbokad ${b.dateKey} kl ${b.time} — ${b.name}`,
         text: `Avbokad: ${b.dateKey} kl ${b.time}\n${b.name} · ${b.serviceName} · ${b.email}`,

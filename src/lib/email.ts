@@ -193,14 +193,19 @@ async function sendViaSmtp(input: MailInput): Promise<MailResult> {
 
 async function sendViaResend(input: MailInput): Promise<MailResult> {
   const key = process.env.RESEND_API_KEY?.trim();
-  const from = process.env.EMAIL_FROM?.trim() || fromAddressString();
-  if (!key || !from) return { ok: true, skipped: true };
+  // Måste vara @beautybysevda.se (verifierad i Resend) — inte hotmail.
+  const from =
+    process.env.EMAIL_FROM?.trim() ||
+    "Beauty by Sevda <bokning@beautybysevda.se>";
+  if (!key) return { ok: true, skipped: true };
 
+  const replyTo = process.env.SEVDA_EMAIL?.trim();
   const body: Record<string, unknown> = {
     from,
     to: input.to,
     subject: input.subject,
   };
+  if (replyTo) body.reply_to = replyTo;
   if (input.html?.trim()) body.html = input.html;
   if (input.text?.trim()) body.text = input.text;
 
@@ -231,11 +236,11 @@ async function sendViaResend(input: MailInput): Promise<MailResult> {
   return { ok: true };
 }
 
-/** Mejl till Sevda (admin) — Brevo OK. */
+/** Mejl till Sevda (admin) — Resend först (samma avsändare som kund). */
 async function sendInternalEmail(input: MailInput): Promise<MailResult> {
-  if (isBrevoConfigured()) return sendViaBrevo(input);
-  if (isSmtpConfigured()) return sendViaSmtp(input);
   if (isResendConfigured()) return sendViaResend(input);
+  if (isSmtpConfigured()) return sendViaSmtp(input);
+  if (isBrevoConfigured()) return sendViaBrevo(input);
   return { ok: true, skipped: true };
 }
 

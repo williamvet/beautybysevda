@@ -557,6 +557,13 @@ export async function getMonthOpenCounts(
 
 /** Kommande aktiva bokningar (idag och framåt) — passerade visas inte i schema. */
 export async function listUpcomingBookings(limit = 60): Promise<Booking[]> {
+  // Rensa först: bara dagar före idag (imorgons bokning påverkas aldrig).
+  try {
+    await archivePastActiveBookings();
+  } catch (e) {
+    console.error("archivePastActiveBookings:", e);
+  }
+
   const today = todayDateKeyStockholm();
   const all = await listBookings(false);
   return all
@@ -567,7 +574,11 @@ export async function listUpcomingBookings(limit = 60): Promise<Booking[]> {
     .slice(0, limit);
 }
 
-/** Markera passerade aktiva bokningar som cancelled (rensar schema). */
+/**
+ * Arkivera passerade aktiva bokningar (status → cancelled, ingen mejl).
+ * Regel: date_key < idag (Stockholm).
+ * Ex: bokning imorgon 14:00 → kvar hela imorgon → bort först dagen efter.
+ */
 export async function archivePastActiveBookings(): Promise<number> {
   const sb = requireDb();
   const today = todayDateKeyStockholm();

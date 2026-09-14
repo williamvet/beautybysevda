@@ -4,12 +4,13 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { FormEvent, Suspense, useEffect, useMemo, useState } from "react";
 import {
-  BOOKING_MONTH,
   BOOKING_YEAR,
   DAY_SLOTS,
+  canNavigateMonth,
+  currentBookableMonth,
   daysInMonth,
+  formatMonthLabel,
   isPastDateKey,
-  monthLabel,
   toDateKey,
   weekdayLabels,
 } from "@/data/availability";
@@ -55,6 +56,9 @@ function BookingWizard() {
   );
   const [daysLoaded, setDaysLoaded] = useState(false);
   const [loadingTimes, setLoadingTimes] = useState(false);
+  const [viewMonth, setViewMonth] = useState(() => currentBookableMonth());
+  const viewYear = BOOKING_YEAR;
+  const viewMonthLabel = formatMonthLabel(viewYear, viewMonth);
 
   const filteredServices = useMemo(
     () => services.filter((s) => s.category === category),
@@ -64,29 +68,32 @@ function BookingWizard() {
   const selectedService = serviceId ? getService(serviceId) : undefined;
 
   const calendarCells = useMemo(() => {
-    const total = daysInMonth(BOOKING_YEAR, BOOKING_MONTH);
-    const firstDow = new Date(BOOKING_YEAR, BOOKING_MONTH, 1).getDay();
+    const total = daysInMonth(viewYear, viewMonth);
+    const firstDow = new Date(viewYear, viewMonth, 1).getDay();
     const mondayFirst = (firstDow + 6) % 7;
     const cells: Array<number | null> = Array(mondayFirst).fill(null);
     for (let d = 1; d <= total; d++) cells.push(d);
     while (cells.length % 7 !== 0) cells.push(null);
     return cells;
-  }, []);
+  }, [viewYear, viewMonth]);
 
   useEffect(() => {
     if (step !== 4 || !serviceId) return;
     setDaysLoaded(false);
     setDayOpenCounts({});
-    fetch(`/api/availability?serviceId=${serviceId}`)
+    const monthQ = viewMonth + 1;
+    fetch(
+      `/api/availability?serviceId=${serviceId}&year=${viewYear}&month=${monthQ}`,
+    )
       .then((r) => r.json())
       .then((data: { days: { dateKey: string; openCount: number }[] }) => {
         const map: Record<string, number> = {};
-        for (const d of data.days) map[d.dateKey] = d.openCount;
+        for (const d of data.days || []) map[d.dateKey] = d.openCount;
         setDayOpenCounts(map);
       })
       .catch(() => setDayOpenCounts({}))
       .finally(() => setDaysLoaded(true));
-  }, [step, serviceId]);
+  }, [step, serviceId, viewYear, viewMonth]);
 
   useEffect(() => {
     if (!dateKey || !serviceId) {
@@ -410,7 +417,7 @@ function BookingWizard() {
           </button>
 
           <p className="text-[11px] uppercase tracking-[0.28em] text-gold">
-            {monthLabel}
+            {viewMonthLabel}
           </p>
           <h2 className="mt-2 font-display text-3xl text-ink">
             Välj dag &amp; tid
@@ -418,15 +425,45 @@ function BookingWizard() {
           <p className="mt-2 text-sm text-ink-muted">
             {selectedService.name} tar ca{" "}
             {formatDuration(selectedService.durationMinutes)} + 15 min paus.
-            Starttider: 10:00, 12:15, 14:30, 16:45. Röd = upptagen/stängd, vit =
-            ledig. Grå tid = redan passerad idag. Grå dag = passerad.
+            Starttider: 10:00, 12:15, 14:30, 16:45. Du kan boka t.o.m. 31
+            december {BOOKING_YEAR}. Röd = upptagen/stängd, vit = ledig.
           </p>
           <p className="mt-3 text-sm leading-relaxed text-ink/70">
             Vill du ha både naglar och fransar samma dag? Boka två lediga tider i
             rad (t.ex. 10:00 och 12:15) — en bokning per behandling.
           </p>
 
-          <div className="mt-8 grid grid-cols-7 gap-1 text-center text-[10px] uppercase tracking-wider text-ink-muted">
+          <div className="mt-6 flex items-center justify-between gap-3">
+            <button
+              type="button"
+              disabled={!canNavigateMonth(viewYear, viewMonth, -1)}
+              onClick={() => {
+                if (!canNavigateMonth(viewYear, viewMonth, -1)) return;
+                setViewMonth((m) => m - 1);
+                setDateKey(null);
+                setTime(null);
+              }}
+              className="rounded-full border border-line px-4 py-2 text-[11px] uppercase tracking-[0.16em] text-ink disabled:opacity-30"
+            >
+              ← Föregående
+            </button>
+            <p className="font-display text-xl text-ink">{viewMonthLabel}</p>
+            <button
+              type="button"
+              disabled={!canNavigateMonth(viewYear, viewMonth, 1)}
+              onClick={() => {
+                if (!canNavigateMonth(viewYear, viewMonth, 1)) return;
+                setViewMonth((m) => m + 1);
+                setDateKey(null);
+                setTime(null);
+              }}
+              className="rounded-full border border-line px-4 py-2 text-[11px] uppercase tracking-[0.16em] text-ink disabled:opacity-30"
+            >
+              Nästa →
+            </button>
+          </div>
+
+          <div className="mt-6 grid grid-cols-7 gap-1 text-center text-[10px] uppercase tracking-wider text-ink-muted">
             {weekdayLabels.map((d) => (
               <div key={d} className="py-2">
                 {d}
@@ -444,10 +481,9 @@ function BookingWizard() {
                 return <div key={`e-${i}`} className="aspect-square" />;
               }
 
-              const key = toDateKey(BOOKING_YEAR, BOOKING_MONTH, day);
+              const key = toDateKey(viewYear, viewMonth, day);
               const past = isPastDateKey(key);
               const openCount = dayOpenCounts[key];
-              // Innan API svarat: visa grå (inte klickbar) — undvik “lediga” blink.
               const available =
                 daysLoaded &&
                 !past &&

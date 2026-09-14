@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getService } from "@/data/services";
-import { DAY_SLOTS } from "@/data/availability";
+import { DAY_SLOTS, isDateKeyBookable } from "@/data/availability";
 import {
   addBooking,
   getOpenTimesForDate,
@@ -61,6 +61,13 @@ export async function POST(req: NextRequest) {
       if (!starts.includes(time)) {
         return NextResponse.json({ error: "Ogiltig tid." }, { status: 400 });
       }
+    }
+
+    if (!isDateKeyBookable(dateKey)) {
+      return NextResponse.json(
+        { error: "Datumet går inte att boka. Välj en dag t.o.m. årets slut." },
+        { status: 400 },
+      );
     }
 
     const service = getService(serviceId);

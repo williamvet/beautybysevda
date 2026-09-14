@@ -1,16 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
-  BOOKING_MONTH,
+  BOOKING_END_DATE_KEY,
   BOOKING_YEAR,
   DAY_SLOTS,
+  currentBookableMonth,
   daysInMonth,
-  monthLabel,
+  formatMonthLabel,
   toDateKey,
+  todayDateKeyStockholm,
 } from "@/data/availability";
 import {
+  archivePastActiveBookings,
   cancelBooking,
   getDaySchedule,
-  listBookings,
+  listUpcomingBookings,
   setSlotClosed,
   closeDateRange,
   openDateRange,
@@ -203,44 +206,50 @@ export async function POST(req: NextRequest) {
   }
 }
 
-/** GET ?date=2026-09-01 — schema + kommande bokningar */
+/** GET ?date=2026-09-14 — schema + kommande bokningar (hela året) */
 export async function GET(req: NextRequest) {
   if (!authorized(req)) return unauthorized();
 
-  const date =
-    req.nextUrl.searchParams.get("date")?.trim() ||
-    toDateKey(BOOKING_YEAR, BOOKING_MONTH, 1);
+  // Rensa passerade aktiva bokningar från listan (ingen mejl).
+  try {
+    await archivePastActiveBookings();
+  } catch (e) {
+    console.error("archivePastActiveBookings:", e);
+  }
 
-  const [schedule, all] = await Promise.all([
-    getDaySchedule(date),
-    listBookings(false),
-  ]);
+  const today = todayDateKeyStockholm();
+  const monthParam = Number(req.nextUrl.searchParams.get("month") || "");
+  const requestedDate = req.nextUrl.searchParams.get("date")?.trim();
 
-  const upcoming = all
-    .slice()
-    .sort((a, b) =>
-      `${a.dateKey}${a.time}`.localeCompare(`${b.dateKey}${b.time}`),
-    )
-    .slice(0, 40)
-    .map((b) => ({
-      id: b.id,
-      name: b.name,
-      phone: b.phone,
-      email: b.email,
-      serviceName: b.serviceName,
-      dateKey: b.dateKey,
-      time: b.time,
-      price: b.price,
-    }));
+  let monthIndex =
+    Number.isFinite(monthParam) && monthParam >= 1 && monthParam <= 12
+      ? monthParam - 1
+      : requestedDate
+        ? Number(requestedDate.slice(5, 7)) - 1
+        : currentBookableMonth();
 
-  const total = daysInMonth(BOOKING_YEAR, BOOKING_MONTH);
+  if (monthIndex < 0 || monthIndex > 11) monthIndex = currentBookableMonth();
+
+  const total = daysInMonth(BOOKING_YEAR, monthIndex);
   const days = Array.from({ length: total }, (_, i) =>
-    toDateKey(BOOKING_YEAR, BOOKING_MONTH, i + 1),
-  );
+    toDateKey(BOOKING_YEAR, monthIndex, i + 1),
+  ).filter((d) => d >= today && d <= BOOKING_END_DATE_KEY);
+
+  let date = requestedDate || today;
+  if (!days.includes(date)) {
+    date = days[0] || today;
+  }
+
+  const [schedule, upcoming] = await Promise.all([
+    getDaySchedule(date),
+    listUpcomingBookings(80),
+  ]);
 
   return NextResponse.json({
     dateKey: date,
-    monthLabel,
+    month: monthIndex,
+    monthLabel: formatMonthLabel(BOOKING_YEAR, monthIndex),
+    bookingEnd: BOOKING_END_DATE_KEY,
     slots: DAY_SLOTS,
     days,
     schedule,

@@ -1,10 +1,11 @@
 import {
-  BOOKING_MONTH,
+  BOOKING_END_DATE_KEY,
   BOOKING_YEAR,
   DAY_SLOTS,
   blockEndMinutes,
   daysInMonth,
   filterOpenStarts,
+  isDateKeyBookable,
   isPastDateKey,
   isSlotInPast,
   isValidStartTime,
@@ -12,6 +13,7 @@ import {
   snapToDaySlot,
   timeToMinutes,
   toDateKey,
+  todayDateKeyStockholm,
 } from "@/data/availability";
 import { getService, type ServiceCategory } from "@/data/services";
 import { getSupabase, isSupabaseConfigured } from "@/lib/supabase";
@@ -518,23 +520,25 @@ export async function getOpenTimesForDate(
   }).filter((time) => !isSlotInPast(dateKey, time));
 }
 
-/** En DB-runda för hela månaden — snabb kalender. */
+/** En DB-runda för en månad — snabb kalender. */
 export async function getMonthOpenCounts(
   durationMinutes: number,
   category?: ServiceCategory | null,
+  year: number = BOOKING_YEAR,
+  monthIndex: number = 0,
 ): Promise<{ dateKey: string; day: number; openCount: number }[]> {
   const [active, closed] = await Promise.all([
     listBookings(false),
     listClosedSlots(),
   ]);
 
-  const total = daysInMonth(BOOKING_YEAR, BOOKING_MONTH);
+  const total = daysInMonth(year, monthIndex);
   const days: { dateKey: string; day: number; openCount: number }[] = [];
   const starts = [...DAY_SLOTS];
 
   for (let day = 1; day <= total; day++) {
-    const dateKey = toDateKey(BOOKING_YEAR, BOOKING_MONTH, day);
-    if (isPastDateKey(dateKey)) {
+    const dateKey = toDateKey(year, monthIndex, day);
+    if (!isDateKeyBookable(dateKey)) {
       days.push({ dateKey, day, openCount: 0 });
       continue;
     }
@@ -549,6 +553,35 @@ export async function getMonthOpenCounts(
   }
 
   return days;
+}
+
+/** Kommande aktiva bokningar (idag och framåt) — passerade visas inte i schema. */
+export async function listUpcomingBookings(limit = 60): Promise<Booking[]> {
+  const today = todayDateKeyStockholm();
+  const all = await listBookings(false);
+  return all
+    .filter((b) => b.dateKey >= today)
+    .sort((a, b) =>
+      `${a.dateKey}${a.time}`.localeCompare(`${b.dateKey}${b.time}`),
+    )
+    .slice(0, limit);
+}
+
+/** Markera passerade aktiva bokningar som cancelled (rensar schema). */
+export async function archivePastActiveBookings(): Promise<number> {
+  const sb = requireDb();
+  const today = todayDateKeyStockholm();
+  const { data, error } = await sb
+    .from("bbs_bookings")
+    .update({
+      status: "cancelled",
+      cancelled_at: new Date().toISOString(),
+    })
+    .eq("status", "active")
+    .lt("date_key", today)
+    .select("id");
+  if (error) throw new Error(error.message);
+  return data?.length ?? 0;
 }
 
 export type PublicSlotStatus = "open" | "booked" | "closed";

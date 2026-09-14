@@ -38,6 +38,7 @@ export default function SevdaPage() {
   const [dateKey, setDateKey] = useState("");
   const [days, setDays] = useState<string[]>([]);
   const [monthLabel, setMonthLabel] = useState("");
+  const [viewMonth, setViewMonth] = useState<number | null>(null); // 0–11
   const [schedule, setSchedule] = useState<ScheduleRow[]>([]);
   const [upcoming, setUpcoming] = useState<Upcoming[]>([]);
   const [busy, setBusy] = useState(false);
@@ -56,9 +57,12 @@ export default function SevdaPage() {
     };
   }
 
-  const load = useCallback(async (day?: string) => {
+  const load = useCallback(async (day?: string, monthIndex?: number) => {
     setError("");
-    const q = day ? `?date=${encodeURIComponent(day)}` : "";
+    const params = new URLSearchParams();
+    if (day) params.set("date", day);
+    if (typeof monthIndex === "number") params.set("month", String(monthIndex + 1));
+    const q = params.toString() ? `?${params}` : "";
     const res = await fetch(`/api/sevda${q}`, { headers: headers() });
     const data = await res.json();
     if (!res.ok) {
@@ -70,6 +74,7 @@ export default function SevdaPage() {
     setDateKey(data.dateKey);
     setDays(data.days || []);
     setMonthLabel(data.monthLabel || "");
+    if (typeof data.month === "number") setViewMonth(data.month);
     setSchedule(data.schedule || []);
     setUpcoming(data.upcoming || []);
   }, []);
@@ -378,6 +383,47 @@ export default function SevdaPage() {
           <h2 className="text-[11px] uppercase tracking-[0.2em] text-ink-muted">
             Välj dag
           </h2>
+          <div className="mt-3 flex items-center justify-between gap-2">
+            <button
+              type="button"
+              disabled={busy || viewMonth === null || viewMonth <= 0}
+              onClick={async () => {
+                if (viewMonth === null || viewMonth <= 0) return;
+                const m = viewMonth - 1;
+                setBusy(true);
+                try {
+                  await load(undefined, m);
+                } catch (err) {
+                  setError(err instanceof Error ? err.message : "Fel");
+                } finally {
+                  setBusy(false);
+                }
+              }}
+              className="rounded-full border border-line px-3 py-2 text-[10px] uppercase tracking-[0.14em] disabled:opacity-30"
+            >
+              ← Månad
+            </button>
+            <p className="text-sm text-ink">{monthLabel}</p>
+            <button
+              type="button"
+              disabled={busy || viewMonth === null || viewMonth >= 11}
+              onClick={async () => {
+                if (viewMonth === null || viewMonth >= 11) return;
+                const m = viewMonth + 1;
+                setBusy(true);
+                try {
+                  await load(undefined, m);
+                } catch (err) {
+                  setError(err instanceof Error ? err.message : "Fel");
+                } finally {
+                  setBusy(false);
+                }
+              }}
+              className="rounded-full border border-line px-3 py-2 text-[10px] uppercase tracking-[0.14em] disabled:opacity-30"
+            >
+              Månad →
+            </button>
+          </div>
           <div className="mt-3 flex gap-2 overflow-x-auto pb-2">
             {days.map((key) => (
               <button
@@ -395,6 +441,11 @@ export default function SevdaPage() {
               </button>
             ))}
           </div>
+          {days.length === 0 ? (
+            <p className="mt-2 text-sm text-ink-muted">
+              Inga kvarvarande dagar denna månad — byt månad.
+            </p>
+          ) : null}
         </section>
 
         <section className="mt-8">
@@ -520,6 +571,9 @@ export default function SevdaPage() {
           <h2 className="text-[11px] uppercase tracking-[0.2em] text-ink-muted">
             Kommande bokningar
           </h2>
+          <p className="mt-2 text-sm text-ink-muted">
+            Passerade bokningar tas bort automatiskt från listan.
+          </p>
           {upcoming.length === 0 ? (
             <p className="mt-3 text-sm text-ink-muted">Inga aktiva bokningar.</p>
           ) : (

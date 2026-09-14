@@ -11,10 +11,67 @@ export const BUFFER_MINUTES = 15;
 export const STANDARD_DURATION_MINUTES = 120;
 export const SLOT_STEP_MINUTES = STANDARD_DURATION_MINUTES + BUFFER_MINUTES; // 135
 
+/** Bokningsåret — öppet t.o.m. sista dagen. */
 export const BOOKING_YEAR = 2026;
-export const BOOKING_MONTH = 8; // September
+export const BOOKING_END_DATE_KEY = `${BOOKING_YEAR}-12-31`;
+
+/** @deprecated Använd currentBookableMonth() — behålls för bakåtkompatibilitet. */
+export const BOOKING_MONTH = 8;
+/** @deprecated Använd formatMonthLabel(year, month) */
 export const monthLabel = "September 2026";
 export const weekdayLabels = ["Mån", "Tis", "Ons", "Tor", "Fre", "Lör", "Sön"];
+
+const MONTH_NAMES_SV = [
+  "Januari",
+  "Februari",
+  "Mars",
+  "April",
+  "Maj",
+  "Juni",
+  "Juli",
+  "Augusti",
+  "September",
+  "Oktober",
+  "November",
+  "December",
+];
+
+export function formatMonthLabel(year: number, monthIndex: number) {
+  return `${MONTH_NAMES_SV[monthIndex] ?? ""} ${year}`;
+}
+
+/** Nuvarande bokningsmånad (0–11) i Stockholm, clampad inom året. */
+export function currentBookableMonth(now = new Date()) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Europe/Stockholm",
+    year: "numeric",
+    month: "2-digit",
+  }).formatToParts(now);
+  const year = Number(parts.find((p) => p.type === "year")?.value ?? BOOKING_YEAR);
+  const month = Number(parts.find((p) => p.type === "month")?.value ?? "1") - 1;
+  if (year < BOOKING_YEAR) return 0;
+  if (year > BOOKING_YEAR) return 11;
+  return Math.min(11, Math.max(0, month));
+}
+
+export function isDateKeyBookable(dateKey: string) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateKey)) return false;
+  if (dateKey > BOOKING_END_DATE_KEY) return false;
+  if (isPastDateKey(dateKey)) return false;
+  return dateKey.startsWith(`${BOOKING_YEAR}-`);
+}
+
+export function canNavigateMonth(year: number, monthIndex: number, dir: -1 | 1) {
+  const next = monthIndex + dir;
+  const y = next < 0 ? year - 1 : next > 11 ? year + 1 : year;
+  const m = ((next % 12) + 12) % 12;
+  if (y !== BOOKING_YEAR) return false;
+  const first = toDateKey(y, m, 1);
+  const last = toDateKey(y, m, daysInMonth(y, m));
+  // Månaden måste överlappa [idag, year-end]
+  const today = todayDateKeyStockholm();
+  return last >= today && first <= BOOKING_END_DATE_KEY;
+}
 
 function pad(n: number) {
   return String(n).padStart(2, "0");
@@ -141,6 +198,11 @@ export function todayDateKeyStockholm() {
 
 export function isPastDateKey(dateKey: string) {
   return dateKey < todayDateKeyStockholm();
+}
+
+/** Passerad bokning = dagen är före idag (hela dagen bort från schema-listor). */
+export function isBookingDatePast(dateKey: string) {
+  return isPastDateKey(dateKey);
 }
 
 function stockholmMinutesNow() {

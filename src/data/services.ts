@@ -24,7 +24,7 @@ export const services: Service[] = [
     name: "Gelénaglar — nytt set",
     description: "Formning, uppbyggnad och lack i vald färg. Hållbart och blankt resultat.",
     durationMinutes: T,
-    price: 280,
+    price: 250,
   },
   {
     id: "gele-fyllning",

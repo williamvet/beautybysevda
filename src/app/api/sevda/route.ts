@@ -11,8 +11,10 @@ import {
 } from "@/data/availability";
 import {
   archivePastActiveBookings,
+  addBooking,
   cancelBooking,
   getDaySchedule,
+  getOpenTimesForDate,
   listUpcomingBookings,
   setSlotClosed,
   closeDateRange,
@@ -20,7 +22,14 @@ import {
   addExtraSlot,
   removeExtraSlot,
 } from "@/lib/bookings";
-import { sendCancelEmails } from "@/lib/email";
+import {
+  bindEmailSiteUrl,
+  sendCancelEmails,
+  sendCustomerBookingEmail,
+  sendSevdaBookingEmail,
+} from "@/lib/email";
+import { getService, services } from "@/data/services";
+import { normalizePhoneToE164 } from "@/lib/sms";
 
 function expectedPassword() {
   return process.env.SEVDA_PASSWORD?.trim() || "";
@@ -49,6 +58,12 @@ export async function POST(req: NextRequest) {
       fromDateKey?: string;
       toDateKey?: string;
       category?: "naglar" | "fransar";
+      name?: string;
+      phone?: string;
+      email?: string;
+      note?: string;
+      serviceId?: string;
+      sendEmails?: boolean;
     };
 
     if (body.action === "login") {
@@ -199,6 +214,108 @@ export async function POST(req: NextRequest) {
       });
     }
 
+    if (body.action === "book-manual") {
+      if (
+        !body.dateKey ||
+        !body.time ||
+        !body.name?.trim() ||
+        !body.phone?.trim() ||
+        !body.email?.trim() ||
+        !body.serviceId
+      ) {
+        return NextResponse.json(
+          { error: "Fyll i namn, telefon, e-post, tjänst, dag och tid." },
+          { status: 400 },
+        );
+      }
+      const service = getService(body.serviceId);
+      if (!service) {
+        return NextResponse.json({ error: "Okänd tjänst." }, { status: 400 });
+      }
+      const phoneE164 = normalizePhoneToE164(body.phone);
+      if (phoneE164.length < 10) {
+        return NextResponse.json(
+          { error: "Ogiltigt telefonnummer." },
+          { status: 400 },
+        );
+      }
+      const emailNorm = body.email.trim().toLowerCase();
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailNorm)) {
+        return NextResponse.json({ error: "Ogiltig e-post." }, { status: 400 });
+      }
+
+      const open = await getOpenTimesForDate(
+        body.dateKey,
+        service.durationMinutes,
+        service.category,
+      );
+      if (!open.includes(body.time)) {
+        return NextResponse.json(
+          {
+            error:
+              "Tiden är inte ledig (krockar, stängd eller passerad). Öppna/lägg till tiden först.",
+          },
+          { status: 409 },
+        );
+      }
+
+      try {
+        const booking = await addBooking({
+          name: body.name.trim(),
+          phone: phoneE164,
+          email: emailNorm,
+          note: body.note?.trim() || "Inbokad av Sevda (SMS/Messenger)",
+          serviceId: service.id,
+          serviceName: service.name,
+          category: service.category,
+          dateKey: body.dateKey,
+          time: body.time,
+          durationMinutes: service.durationMinutes,
+          price: service.price,
+          notifiedSevda: false,
+          notifiedCustomer: false,
+        });
+
+        let mailHint = "Bokning sparad.";
+        if (body.sendEmails !== false) {
+          bindEmailSiteUrl(req);
+          const [sevdaMail, customerMail] = await Promise.all([
+            sendSevdaBookingEmail(booking),
+            sendCustomerBookingEmail(booking),
+          ]);
+          mailHint =
+            customerMail.ok && sevdaMail.ok
+              ? "Bokad. Kund och du får mejl."
+              : customerMail.ok
+                ? "Bokad. Kund fick mejl (ditt mejl misslyckades)."
+                : sevdaMail.ok
+                  ? "Bokad. Du fick mejl (kundmejlet misslyckades)."
+                  : "Bokad, men mejl gick inte fram.";
+        }
+
+        const schedule = await getDaySchedule(body.dateKey);
+        const upcoming = await listUpcomingBookings(80);
+        return NextResponse.json({
+          ok: true,
+          message: mailHint,
+          schedule,
+          upcoming,
+          booking: {
+            id: booking.id,
+            name: booking.name,
+            dateKey: booking.dateKey,
+            time: booking.time,
+            serviceName: booking.serviceName,
+          },
+        });
+      } catch (e) {
+        return NextResponse.json(
+          { error: e instanceof Error ? e.message : "Kunde inte boka." },
+          { status: 400 },
+        );
+      }
+    }
+
     return NextResponse.json({ error: "Okänd åtgärd." }, { status: 400 });
   } catch (error) {
     console.error(error);
@@ -254,5 +371,12 @@ export async function GET(req: NextRequest) {
     days,
     schedule,
     upcoming,
+    services: services.map((s) => ({
+      id: s.id,
+      name: s.name,
+      category: s.category,
+      price: s.price,
+      durationMinutes: s.durationMinutes,
+    })),
   });
 }

@@ -28,6 +28,14 @@ type Upcoming = {
   price: number;
 };
 
+type AdminService = {
+  id: string;
+  name: string;
+  category: string;
+  price: number;
+  durationMinutes: number;
+};
+
 const STORAGE_KEY = "bbs-sevda";
 
 export default function SevdaPage() {
@@ -41,9 +49,16 @@ export default function SevdaPage() {
   const [viewMonth, setViewMonth] = useState<number | null>(null); // 0–11
   const [schedule, setSchedule] = useState<ScheduleRow[]>([]);
   const [upcoming, setUpcoming] = useState<Upcoming[]>([]);
+  const [services, setServices] = useState<AdminService[]>([]);
   const [busy, setBusy] = useState(false);
-  const [newTime, setNewTime] = useState("11:00");
+  const [newTime, setNewTime] = useState("17:30");
   const [hint, setHint] = useState("");
+  const [bookName, setBookName] = useState("");
+  const [bookPhone, setBookPhone] = useState("");
+  const [bookEmail, setBookEmail] = useState("");
+  const [bookServiceId, setBookServiceId] = useState("");
+  const [bookTime, setBookTime] = useState("");
+  const [bookSendMail, setBookSendMail] = useState(true);
 
   function headers() {
     const pw =
@@ -77,6 +92,16 @@ export default function SevdaPage() {
     if (typeof data.month === "number") setViewMonth(data.month);
     setSchedule(data.schedule || []);
     setUpcoming(data.upcoming || []);
+    if (Array.isArray(data.services) && data.services.length) {
+      setServices(data.services);
+      setBookServiceId((prev) => prev || data.services[0]?.id || "");
+    }
+    const openTimes = (data.schedule || [])
+      .filter((r: ScheduleRow) => r.status === "open")
+      .map((r: ScheduleRow) => r.time);
+    setBookTime((prev) =>
+      prev && openTimes.includes(prev) ? prev : openTimes[0] || "",
+    );
   }, []);
 
   useEffect(() => {
@@ -190,6 +215,7 @@ export default function SevdaPage() {
       if (!res.ok) throw new Error(data.error || "Kunde inte lägga till");
       setSchedule(data.schedule || []);
       setHint(data.message || "Tid tillagd.");
+      await load(dateKey);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Fel");
     } finally {
@@ -215,6 +241,47 @@ export default function SevdaPage() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Kunde inte ta bort");
       setSchedule(data.schedule || []);
+      await load(dateKey);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Fel");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function bookManual(e: React.FormEvent) {
+    e.preventDefault();
+    if (!bookTime) {
+      setError("Välj en ledig tid först (eller lägg till 17:30 ovan).");
+      return;
+    }
+    setBusy(true);
+    setError("");
+    setHint("");
+    try {
+      const res = await fetch("/api/sevda", {
+        method: "POST",
+        headers: headers(),
+        body: JSON.stringify({
+          action: "book-manual",
+          dateKey,
+          time: bookTime,
+          name: bookName,
+          phone: bookPhone,
+          email: bookEmail,
+          serviceId: bookServiceId,
+          sendEmails: bookSendMail,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Kunde inte boka");
+      setHint(data.message || "Kunden är inbokad.");
+      if (data.schedule) setSchedule(data.schedule);
+      if (data.upcoming) setUpcoming(data.upcoming);
+      setBookName("");
+      setBookPhone("");
+      setBookEmail("");
+      await load(dateKey);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Fel");
     } finally {
@@ -370,11 +437,36 @@ export default function SevdaPage() {
         {error ? <p className="mt-4 text-sm text-red-600">{error}</p> : null}
         {hint ? <p className="mt-4 text-sm text-emerald-700">{hint}</p> : null}
 
+        <div className="mt-6 border border-gold/40 bg-white px-4 py-4 text-sm leading-relaxed text-ink/80">
+          <p className="text-[11px] uppercase tracking-[0.18em] text-gold-deep">
+            Så här använder du schemat
+          </p>
+          <ul className="mt-3 list-disc space-y-1.5 pl-5">
+            <li>
+              <strong>Stäng</strong> = tiden blir otillgänglig (grå) för kunder
+            </li>
+            <li>
+              <strong>Öppna</strong> = tiden blir ledig (grön) igen
+            </li>
+            <li>
+              <strong>Lägg till tid</strong> = egen starttid t.ex. 17:30 (syns
+              för kunder)
+            </li>
+            <li>
+              <strong>Boka in kund</strong> = när någon skriver på SMS/Messenger
+              — ni får båda mejl
+            </li>
+            <li>
+              <strong>Avboka</strong> = tar bort bokningen och skickar mejl
+            </li>
+          </ul>
+        </div>
+
         <button
           type="button"
           disabled={busy}
           onClick={closeBusyPeriod}
-          className="mt-6 w-full rounded-full border border-red-300 bg-red-50 py-3 text-[11px] uppercase tracking-[0.16em] text-red-700 transition hover:bg-red-100 disabled:opacity-50"
+          className="mt-4 w-full rounded-full border border-red-300 bg-red-50 py-3 text-[11px] uppercase tracking-[0.16em] text-red-700 transition hover:bg-red-100 disabled:opacity-50"
         >
           Stäng fransar 2 v + öppna naglar
         </button>
@@ -453,8 +545,8 @@ export default function SevdaPage() {
             Tider {dateKey}
           </h2>
           <p className="mt-2 text-sm text-ink-muted">
-            Grön = ledig · Röd = bokad · Grå = stängd. Lägg till egna tider
-            nedan — de syns direkt för kunder.
+            Grön = ledig · Röd = bokad · Grå = stängd. Egna tider (t.ex. 17:30)
+            syns för kunder automatiskt.
           </p>
 
           <form
@@ -462,13 +554,13 @@ export default function SevdaPage() {
             className="mt-4 flex flex-wrap items-end gap-3 border border-line bg-white px-4 py-4"
           >
             <label className="text-xs uppercase tracking-[0.14em] text-ink-muted">
-              Ny starttid
+              Ny starttid (t.ex. 17:30)
               <input
                 type="time"
                 value={newTime}
                 onChange={(e) => setNewTime(e.target.value)}
                 min="10:00"
-                max="18:00"
+                max="17:45"
                 step={900}
                 className="mt-2 block w-36 border border-line bg-bg-soft px-3 py-2.5 text-base text-ink"
               />
@@ -479,6 +571,106 @@ export default function SevdaPage() {
               className="rounded-full bg-ink px-5 py-3 text-[10px] uppercase tracking-[0.16em] text-white disabled:opacity-50"
             >
               Lägg till tid
+            </button>
+          </form>
+
+          <form
+            onSubmit={bookManual}
+            className="mt-4 space-y-3 border border-emerald-200 bg-emerald-50/40 px-4 py-4"
+          >
+            <p className="text-[11px] uppercase tracking-[0.18em] text-emerald-800">
+              Boka in kund (SMS / Messenger)
+            </p>
+            <p className="text-xs text-ink-muted">
+              Fyll i uppgifterna — bokningen sparas och mejl skickas (om du
+              lämnar rutan ikryssad).
+            </p>
+            <label className="block text-xs uppercase tracking-[0.14em] text-ink-muted">
+              Namn
+              <input
+                required
+                value={bookName}
+                onChange={(e) => setBookName(e.target.value)}
+                className="mt-1.5 w-full border border-line bg-white px-3 py-2.5 text-base text-ink"
+                placeholder="Kundens namn"
+              />
+            </label>
+            <label className="block text-xs uppercase tracking-[0.14em] text-ink-muted">
+              Telefon
+              <input
+                required
+                type="tel"
+                value={bookPhone}
+                onChange={(e) => setBookPhone(e.target.value)}
+                className="mt-1.5 w-full border border-line bg-white px-3 py-2.5 text-base text-ink"
+                placeholder="07X XXX XX XX"
+              />
+            </label>
+            <label className="block text-xs uppercase tracking-[0.14em] text-ink-muted">
+              E-post (för bekräftelse)
+              <input
+                required
+                type="email"
+                value={bookEmail}
+                onChange={(e) => setBookEmail(e.target.value)}
+                className="mt-1.5 w-full border border-line bg-white px-3 py-2.5 text-base text-ink"
+                placeholder="kund@mail.se"
+              />
+            </label>
+            <label className="block text-xs uppercase tracking-[0.14em] text-ink-muted">
+              Tjänst
+              <select
+                required
+                value={bookServiceId}
+                onChange={(e) => setBookServiceId(e.target.value)}
+                className="mt-1.5 w-full border border-line bg-white px-3 py-2.5 text-base text-ink"
+              >
+                {services.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.category === "naglar" ? "Naglar" : "Fransar"} · {s.name}{" "}
+                    ({s.price} kr)
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="block text-xs uppercase tracking-[0.14em] text-ink-muted">
+              Ledig tid
+              <select
+                required
+                value={bookTime}
+                onChange={(e) => setBookTime(e.target.value)}
+                className="mt-1.5 w-full border border-line bg-white px-3 py-2.5 text-base text-ink"
+              >
+                {schedule
+                  .filter((r) => r.status === "open")
+                  .map((r) => (
+                    <option key={r.time} value={r.time}>
+                      {r.time}
+                      {r.custom ? " (egen)" : ""}
+                    </option>
+                  ))}
+              </select>
+            </label>
+            {schedule.every((r) => r.status !== "open") ? (
+              <p className="text-xs text-red-600">
+                Ingen ledig tid denna dag — lägg till 17:30 eller öppna en stängd
+                tid.
+              </p>
+            ) : null}
+            <label className="flex items-center gap-2 text-sm text-ink">
+              <input
+                type="checkbox"
+                checked={bookSendMail}
+                onChange={(e) => setBookSendMail(e.target.checked)}
+              />
+              Skicka bekräftelsemejl till kund (+ notis till dig)
+            </label>
+            <button
+              type="submit"
+              disabled={busy || !bookTime}
+              className="w-full rounded-full bg-emerald-800 py-3 text-[11px] uppercase tracking-[0.16em] text-white disabled:opacity-50"
+            >
+              {busy ? "Sparar…" : "Boka in kund"}
             </button>
           </form>
 

@@ -344,14 +344,26 @@ export async function setSlotClosed(
   category?: ServiceCategory,
 ) {
   const sb = requireDb();
-  const key = slotKey(dateKey, time, category);
   if (closed) {
+    const key = slotKey(dateKey, time, category);
     const { error } = await sb
       .from("bbs_closed_slots")
       .upsert({ slot_key: key }, { onConflict: "slot_key" });
     if (error) throw new Error(error.message);
+  } else if (category) {
+    const { error } = await sb
+      .from("bbs_closed_slots")
+      .delete()
+      .eq("slot_key", slotKey(dateKey, time, category));
+    if (error) throw new Error(error.message);
   } else {
-    const { error } = await sb.from("bbs_closed_slots").delete().eq("slot_key", key);
+    // Öppna helt — ta bort både “alla” och kategori-stängningar.
+    const keys = [
+      slotKey(dateKey, time),
+      slotKey(dateKey, time, "fransar"),
+      slotKey(dateKey, time, "naglar"),
+    ];
+    const { error } = await sb.from("bbs_closed_slots").delete().in("slot_key", keys);
     if (error) throw new Error(error.message);
   }
   return listClosedSlots();
@@ -467,7 +479,7 @@ export async function addExtraSlot(dateKey: string, time: string) {
   const normalized = time.trim();
   if (!isValidStartTime(normalized)) {
     throw new Error(
-      "Ogiltig tid. Använd t.ex. 11:00 — mellan 10:00 och 18:00.",
+      "Ogiltig tid. Välj mellan 10:00 och 17:45 (2 tim måste hinnas innan 20:00).",
     );
   }
   const starts = await getStartsForDate(dateKey);
@@ -506,11 +518,11 @@ export async function getOpenTimesForDate(
 ): Promise<string[]> {
   if (isPastDateKey(dateKey)) return [];
 
-  const [dayBookings, closed] = await Promise.all([
+  const [dayBookings, closed, starts] = await Promise.all([
     listActiveBookingsOnDate(dateKey),
     listClosedSlots(),
+    getStartsForDate(dateKey, { includeExtras: true }),
   ]);
-  const starts = [...DAY_SLOTS];
 
   return filterOpenStarts({
     durationMinutes,
@@ -527,14 +539,14 @@ export async function getMonthOpenCounts(
   year: number = BOOKING_YEAR,
   monthIndex: number = 0,
 ): Promise<{ dateKey: string; day: number; openCount: number }[]> {
-  const [active, closed] = await Promise.all([
+  const [active, closed, extras] = await Promise.all([
     listBookings(false),
     listClosedSlots(),
+    listExtraSlots(),
   ]);
 
   const total = daysInMonth(year, monthIndex);
   const days: { dateKey: string; day: number; openCount: number }[] = [];
-  const starts = [...DAY_SLOTS];
 
   for (let day = 1; day <= total; day++) {
     const dateKey = toDateKey(year, monthIndex, day);
@@ -542,6 +554,12 @@ export async function getMonthOpenCounts(
       days.push({ dateKey, day, openCount: 0 });
       continue;
     }
+    const custom = extras
+      .filter((k) => k.startsWith(`${dateKey}|`))
+      .map((k) => k.split("|")[1]!);
+    const starts = [
+      ...new Set([...DAY_SLOTS, ...custom]),
+    ].sort((a, b) => timeToMinutes(a) - timeToMinutes(b));
     const dayBookings = active.filter((b) => b.dateKey === dateKey);
     const open = filterOpenStarts({
       durationMinutes,
@@ -602,14 +620,15 @@ export async function getPublicSlotsForDate(
   durationMinutes: number,
   category?: ServiceCategory | null,
 ): Promise<{ time: string; status: PublicSlotStatus }[]> {
-  const starts = [...DAY_SLOTS];
   if (isPastDateKey(dateKey)) {
+    const starts = await getStartsForDate(dateKey, { includeExtras: true });
     return starts.map((time) => ({ time, status: "closed" as const }));
   }
 
-  const [dayBookings, closed] = await Promise.all([
+  const [dayBookings, closed, starts] = await Promise.all([
     listActiveBookingsOnDate(dateKey),
     listClosedSlots(),
+    getStartsForDate(dateKey, { includeExtras: true }),
   ]);
   const closedSet = new Set(closedTimesForDay(closed, dateKey, category));
   const open = filterOpenStarts({
@@ -657,12 +676,30 @@ export async function getDaySchedule(dateKey: string) {
         return t >= start && t < end;
       }) ?? null;
 
-    const isClosed =
-      closed.includes(slotKey(dateKey, time)) ||
-      closed.includes(slotKey(dateKey, time, "fransar")) ||
-      closed.includes(slotKey(dateKey, time, "naglar"));
+    const closedAll = closed.includes(slotKey(dateKey, time));
+    const closedFransar = closed.includes(slotKey(dateKey, time, "fransar"));
+    const closedNaglar = closed.includes(slotKey(dateKey, time, "naglar"));
+    // Stängd i schemat bara om allt är stängt — annars kan naglar vara lediga.
+    const isClosed = closedAll || (closedFransar && closedNaglar);
     const isStart = booking?.time === time;
     const isCustom = customSet.has(time);
+
+    let label = "Ledig";
+    if (booking) {
+      label = isStart
+        ? `${booking.name} · ${booking.serviceName} (${resolveDuration(booking)} min)`
+        : `Upptagen (pågår)`;
+    } else if (closedAll) {
+      label = "Stängd (ingen kan boka)";
+    } else if (closedFransar && closedNaglar) {
+      label = "Stängd";
+    } else if (closedFransar) {
+      label = "Ledig för naglar · fransar stängda";
+    } else if (closedNaglar) {
+      label = "Ledig för fransar · naglar stängda";
+    } else if (isCustom) {
+      label = "Ledig (egen tid)";
+    }
 
     return {
       time,
@@ -675,15 +712,9 @@ export async function getDaySchedule(dateKey: string) {
           ? ("closed" as const)
           : ("open" as const),
       booking: isStart ? booking : null,
-      label: booking
-        ? isStart
-          ? `${booking.name} · ${booking.serviceName} (${resolveDuration(booking)} min)`
-          : `Upptagen (pågår)`
-        : isClosed
-          ? "Stängd"
-          : isCustom
-            ? "Ledig (egen tid)"
-            : "Ledig",
+      label,
+      closedFransar,
+      closedNaglar,
     };
   });
 }

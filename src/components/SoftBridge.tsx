@@ -1,7 +1,11 @@
 import Link from "next/link";
+import { ReviewLink } from "@/components/ReviewLink";
+import { siteConfig } from "@/lib/site";
 
 /** Enkel brygga mellan meny och galleri */
 export function SoftBridge() {
+  const hasReview = Boolean(siteConfig.googleReviewUrl);
+
   return (
     <section className="relative overflow-hidden bg-bg-soft px-5 py-12 md:px-8 md:py-14">
       <div
@@ -21,12 +25,19 @@ export function SoftBridge() {
           Kontant · avboka senast{" "}
           <span className="italic text-gold-deep">24 h</span> innan
         </p>
-        <Link
-          href="/regler"
-          className="mt-4 text-[11px] uppercase tracking-[0.2em] text-ink-muted hover:text-gold-deep"
-        >
-          Bokningsregler →
-        </Link>
+        <div className="mt-4 flex flex-wrap items-center justify-center gap-4">
+          <Link
+            href="/regler"
+            className="text-[11px] uppercase tracking-[0.2em] text-ink-muted hover:text-gold-deep"
+          >
+            Bokningsregler →
+          </Link>
+          {hasReview ? (
+            <ReviewLink className="text-[11px] uppercase tracking-[0.2em] text-gold-deep hover:text-ink">
+              Lämna en recension →
+            </ReviewLink>
+          ) : null}
+        </div>
       </div>
       <div
         aria-hidden

@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { ReviewLink } from "@/components/ReviewLink";
 import { siteConfig } from "@/lib/site";
 
 function InstagramIcon({ className }: { className?: string }) {
@@ -93,6 +94,13 @@ export function Footer() {
                   Boka
                 </Link>
               </li>
+              {siteConfig.googleReviewUrl ? (
+                <li>
+                  <ReviewLink className="hover:text-gold-deep">
+                    Lämna recension
+                  </ReviewLink>
+                </li>
+              ) : null}
             </ul>
           </div>
 

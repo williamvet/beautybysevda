@@ -9,6 +9,13 @@ export const siteConfig = {
   instagramHandle: "beautyby.sevda",
   /** TikTok utan @ — ändra om kontot heter något annat */
   tiktokHandle: "beautyby.sevda",
+  /**
+   * Google “Skriv en recension”-länk (från Google Företagsprofil).
+   * Sätt NEXT_PUBLIC_GOOGLE_REVIEW_URL i Vercel / .env.local
+   */
+  get googleReviewUrl() {
+    return process.env.NEXT_PUBLIC_GOOGLE_REVIEW_URL?.trim() || "";
+  },
   get instagramUrl() {
     return `https://instagram.com/${this.instagramHandle}`;
   },

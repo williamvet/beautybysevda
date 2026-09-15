@@ -21,6 +21,8 @@ import {
   services,
   type ServiceCategory,
 } from "@/data/services";
+import { ReviewLink } from "@/components/ReviewLink";
+import { siteConfig } from "@/lib/site";
 
 type Step = 1 | 2 | 3 | 4 | 5;
 
@@ -659,6 +661,12 @@ function BookingWizard() {
               Bokningsregler →
             </Link>
           )}
+
+          {siteConfig.googleReviewUrl ? (
+            <ReviewLink className="mx-auto mt-6 flex max-w-md items-center justify-center rounded-full border border-gold/50 bg-white px-7 py-3.5 text-[11px] uppercase tracking-[0.18em] text-gold-deep transition hover:border-ink hover:text-ink">
+              Lämna en recension på Google
+            </ReviewLink>
+          ) : null}
 
           <Link
             href="/"

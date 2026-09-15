@@ -11,10 +11,13 @@ export const siteConfig = {
   tiktokHandle: "beautyby.sevda",
   /**
    * Google “Skriv en recension”-länk (från Google Företagsprofil).
-   * Sätt NEXT_PUBLIC_GOOGLE_REVIEW_URL i Vercel / .env.local
+   * Kan överskrivas med NEXT_PUBLIC_GOOGLE_REVIEW_URL.
    */
   get googleReviewUrl() {
-    return process.env.NEXT_PUBLIC_GOOGLE_REVIEW_URL?.trim() || "";
+    return (
+      process.env.NEXT_PUBLIC_GOOGLE_REVIEW_URL?.trim() ||
+      "https://g.page/r/CZBtueLCAFF-EBM/review"
+    );
   },
   get instagramUrl() {
     return `https://instagram.com/${this.instagramHandle}`;
